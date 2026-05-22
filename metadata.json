@@ -1,0 +1,6 @@
+{
+  "name": "المحاسب المالي",
+  "description": "تطبيق محاسبي مالي إلكتروني متكامل يدير الحسابات والقيود والرواتب والمخازن والتقارير المالية والتحليل المحاسبي الذكي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
