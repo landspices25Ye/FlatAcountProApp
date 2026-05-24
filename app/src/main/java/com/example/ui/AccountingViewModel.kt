@@ -14,24 +14,52 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
 
     // --- State Streams from Database ---
     val accounts: StateFlow<List<AccountEntity>> = repository.allAccounts
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading accounts", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val journalEntries: StateFlow<List<JournalEntryWithOwner>> = repository.allEntries
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading entries", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val products: StateFlow<List<ProductEntity>> = repository.allProducts
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading products", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val partners: StateFlow<List<PartnerEntity>> = repository.allPartners
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading partners", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val employees: StateFlow<List<EmployeeEntity>> = repository.allEmployees
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading employees", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val payrolls: StateFlow<List<PayrollRecordEntity>> = repository.allPayrolls
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading payrolls", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val stockMovements: StateFlow<List<StockMovementEntity>> = repository.allMovements
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading movements", t)
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- Search/Filter states ---
@@ -270,6 +298,26 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             totalEquity = totalEquity
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BalanceSheetData())
+
+    private val _aiAnalysisResult = MutableStateFlow<String?>(null)
+    val aiAnalysisResult: StateFlow<String?> = _aiAnalysisResult.asStateFlow()
+
+    private val geminiService = GeminiService()
+
+    fun analyzeFinancials() {
+        viewModelScope.launch {
+            _aiAnalysisResult.value = "جاري تحليل البيانات عبر Gemini... يرجى الانتظار"
+            val incomeData = incomeStatement.value
+            val tbData = trialBalance.value.rows.filter { it.totalDebit != 0.0 || it.totalCredit != 0.0 || it.netBalance != 0.0 }
+            
+            val incomeListForPrompt = mutableListOf<Pair<AccountEntity, Double>>()
+            incomeData.revenueAccounts.forEach { incomeListForPrompt.add(Pair(it.account, it.netBalance)) }
+            incomeData.expenseAccounts.forEach { incomeListForPrompt.add(Pair(it.account, it.netBalance)) }
+            
+            val result = geminiService.analyzeFinancials(incomeListForPrompt, tbData)
+            _aiAnalysisResult.value = result
+        }
+    }
 }
 
 // Data wrappers for dashboard stats and reports

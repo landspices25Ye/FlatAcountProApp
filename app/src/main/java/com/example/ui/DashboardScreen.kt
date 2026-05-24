@@ -3,9 +3,11 @@ package com.example.ui
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -60,10 +62,12 @@ fun DashboardScreen(
     val ledgerData by viewModel.accountLedger.collectAsStateWithLifecycle()
     val incomeData by viewModel.incomeStatement.collectAsStateWithLifecycle()
     val balanceSheetData by viewModel.balanceSheet.collectAsStateWithLifecycle()
+    val aiAnalysisResult by viewModel.aiAnalysisResult.collectAsStateWithLifecycle()
 
     val selectedLedgerId by viewModel.selectedLedgerAccountId.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
@@ -91,31 +95,30 @@ fun DashboardScreen(
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                tonalElevation = 4.dp
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
+                    .navigationBarsPadding() // Avoid overlapping with device navigation keys
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Spacer(modifier = Modifier.width(4.dp))
                 ActiveTab.values().forEach { tab ->
-                    NavigationBarItem(
+                    FilterChip(
                         selected = currentTab == tab,
                         onClick = { currentTab = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.titleAr) },
-                        label = {
-                            Text(
-                                tab.titleAr,
-                                fontSize = 10.sp,
-                                fontWeight = if (currentTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                maxLines = 1,
-                                textAlign = TextAlign.Center
-                            )
-                        }
+                        label = { Text(tab.titleAr) },
+                        leadingIcon = { Icon(tab.icon, contentDescription = tab.titleAr, modifier = Modifier.size(18.dp)) }
                     )
                 }
+                Spacer(modifier = Modifier.width(4.dp))
             }
         }
     ) { innerPadding ->
         Box(
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
@@ -196,7 +199,9 @@ fun DashboardScreen(
                     )
                     ActiveTab.REPORTS -> ReportsTab(
                         incomeData = incomeData,
-                        balanceSheetData = balanceSheetData
+                        balanceSheetData = balanceSheetData,
+                        aiAnalysisResult = aiAnalysisResult,
+                        onAnalyze = { viewModel.analyzeFinancials() }
                     )
                 }
             }
@@ -958,7 +963,7 @@ fun TrialBalanceAndLedgerTab(
             .padding(16.dp)
     ) {
         // Mode Selector Toggle Tab Card
-        TabRow(selectedTabIndex = modeToggle) {
+        TabRow(selectedTabIndex = modeToggle, modifier = Modifier.fillMaxWidth()) {
             Tab(selected = modeToggle == 0, onClick = { modeToggle = 0 }, text = { Text("ميزان المراجعة بالمجاميع والأرصدة") })
             Tab(selected = modeToggle == 1, onClick = { modeToggle = 1 }, text = { Text("دفتر الأستاذ العام للحساب") })
         }
@@ -1154,7 +1159,7 @@ fun InvoicingTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            ScrollableTabRow(selectedTabIndex = invoicingMode) {
+            ScrollableTabRow(selectedTabIndex = invoicingMode, edgePadding = 0.dp, modifier = Modifier.fillMaxWidth()) {
                 Tab(selected = invoicingMode == 0, onClick = { invoicingMode = 0 }, text = { Text("فاتورة مبيعات") })
                 Tab(selected = invoicingMode == 1, onClick = { invoicingMode = 1 }, text = { Text("فاتورة مشتريات") })
                 Tab(selected = invoicingMode == 2, onClick = { invoicingMode = 2 }, text = { Text("العملاء والموردين") })
@@ -1235,6 +1240,39 @@ fun InvoicingTab(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                item {
+                    val q = saleQtyInput.toDoubleOrNull() ?: 0.0
+                    val pr = salePriceOverride.toDoubleOrNull() ?: 0.0
+                    val subtotal = q * pr
+                    val vat = subtotal * 0.15
+                    val grandTotal = subtotal + vat
+
+                    if (subtotal > 0) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("ملخص مالبة الفاتورة (ضريبة القيمة المضافة المبسطة):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("المجموع الفرعي (غير شامل الضريبة):", fontSize = 11.sp)
+                                    Text("${formatAmount(subtotal)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("ضريبة القيمة المضافة (15٪):", fontSize = 11.sp)
+                                    Text("${formatAmount(vat)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("الإجمالي المستحق (شامل الضريبة):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("${formatAmount(grandTotal)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 item {
@@ -1356,6 +1394,39 @@ fun InvoicingTab(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                item {
+                    val q = purchaseQtyInput.toDoubleOrNull() ?: 0.0
+                    val cost = purchaseCostInput.toDoubleOrNull() ?: 0.0
+                    val subtotal = q * cost
+                    val vat = subtotal * 0.15
+                    val grandTotal = subtotal + vat
+
+                    if (subtotal > 0) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("ملخص مالية فاتورة المشتريات (مع الاسترداد الضريبي):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("المجموع الفرعي (غير شامل الضريبة):", fontSize = 11.sp)
+                                    Text("${formatAmount(subtotal)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("ضريبة المدخلات القابلة للاسترداد (15٪):", fontSize = 11.sp)
+                                    Text("${formatAmount(vat)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("إجمالي المدفوعات المستحق (شامل الضريبة):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("${formatAmount(grandTotal)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 item {
@@ -1570,7 +1641,7 @@ fun InventoryTab(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        TabRow(selectedTabIndex = invViewMode) {
+        TabRow(selectedTabIndex = invViewMode, modifier = Modifier.fillMaxWidth()) {
             Tab(selected = invViewMode == 0, onClick = { invViewMode = 0 }, text = { Text("المخزون الفعلي المتاح") })
             Tab(selected = invViewMode == 1, onClick = { invViewMode = 1 }, text = { Text("تسوية جردية") })
             Tab(selected = invViewMode == 2, onClick = { invViewMode = 2 }, text = { Text("سجل حركات المخزن") })
@@ -1776,7 +1847,7 @@ fun HrPayrollTab(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        TabRow(selectedTabIndex = hrViewToggle) {
+        TabRow(selectedTabIndex = hrViewToggle, modifier = Modifier.fillMaxWidth()) {
             Tab(selected = hrViewToggle == 0, onClick = { hrViewToggle = 0 }, text = { Text("الموظفين والملفات") })
             Tab(selected = hrViewToggle == 1, onClick = { hrViewToggle = 1 }, text = { Text("مسيرات كشوف الرواتب") })
         }
@@ -1979,18 +2050,22 @@ fun HrPayrollTab(
 @Composable
 fun ReportsTab(
     incomeData: IncomeStatementData,
-    balanceSheetData: BalanceSheetData
+    balanceSheetData: BalanceSheetData,
+    aiAnalysisResult: String?,
+    onAnalyze: () -> Unit
 ) {
-    var reportsModeToggle by remember { mutableStateOf(0) } // 0: Income Statement, 1: Balance Sheet
+    var reportsModeToggle by remember { mutableStateOf(0) } // 0: Income, 1: Balance, 2: VAT & Zakat, 3: AI
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        TabRow(selectedTabIndex = reportsModeToggle) {
-            Tab(selected = reportsModeToggle == 0, onClick = { reportsModeToggle = 0 }, text = { Text("قائمة الدخل الأرباح والخسائر") })
-            Tab(selected = reportsModeToggle == 1, onClick = { reportsModeToggle = 1 }, text = { Text("الميزانية العمومية والمركز") })
+        ScrollableTabRow(selectedTabIndex = reportsModeToggle, edgePadding = 0.dp, modifier = Modifier.fillMaxWidth()) {
+            Tab(selected = reportsModeToggle == 0, onClick = { reportsModeToggle = 0 }, text = { Text("قائمة الدخل", fontSize = 11.sp) })
+            Tab(selected = reportsModeToggle == 1, onClick = { reportsModeToggle = 1 }, text = { Text("الميزانية", fontSize = 11.sp) })
+            Tab(selected = reportsModeToggle == 2, onClick = { reportsModeToggle = 2 }, text = { Text("الزكاة والضرائب", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) })
+            Tab(selected = reportsModeToggle == 3, onClick = { reportsModeToggle = 3 }, text = { Text("التحليل الذكي", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) })
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -2070,8 +2145,7 @@ fun ReportsTab(
                     }
                 }
             }
-
-        } else {
+        } else if (reportsModeToggle == 1) {
             // Balance Sheet: Assets = Liabilities + Equity
             Text("الميزانية العمومية ومسرد المركز المالي", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(10.dp))
@@ -2192,6 +2266,136 @@ fun ReportsTab(
                                 fontSize = 11.sp,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
+                        }
+                    }
+                }
+            }
+        } else if (reportsModeToggle == 2) {
+            // Zakat & VAT tax report (Saudi Arabia localization)
+            val vatOutput = Math.abs(balanceSheetData.liabilityAccounts.find { it.account.code == "2201" }?.netBalance ?: 0.0)
+            val vatInput = Math.abs(balanceSheetData.assetAccounts.find { it.account.code == "1401" }?.netBalance ?: 0.0)
+            val netVatPayable = vatOutput - vatInput
+
+            val capital = Math.abs(balanceSheetData.equityAccounts.find { it.account.code == "3101" }?.netBalance ?: 0.0)
+            val zakatProvision = Math.abs(balanceSheetData.liabilityAccounts.find { it.account.code == "2301" }?.netBalance ?: 0.0)
+            val zakatBase = Math.max(0.0, capital + incomeData.netIncome + zakatProvision)
+            val zakatAmt = zakatBase * 0.025
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Text("تقرير الزكاة وضريبة القيمة المضافة (ZATCA KSA)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("الإقرارات والتقديرات المحاسبية للفترة الجارية 2026", fontSize = 11.sp, color = Color.Gray)
+                }
+
+                // 1. VAT Section
+                item {
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("ضريبة القيمة المضافة (VAT - 15٪)", fontWeight = FontWeight.Bold, color = TealAccent, fontSize = 14.sp)
+                                Surface(
+                                    color = if (netVatPayable >= 0) Color(0xFFFCE8E6) else Color(0xFFE6F4EA),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        if (netVatPayable >= 0) "مستحق السداد" else "رصيد دائن مسترد",
+                                        color = if (netVatPayable >= 0) Color(0xFFC5221F) else Color(0xFF137333),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("ضريبة المخرجات (المبيعات) - 2201:", fontSize = 12.sp)
+                                Text("${formatAmount(vatOutput)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("ضريبة المدخلات (المشتريات) - 1401:", fontSize = 12.sp)
+                                Text("${formatAmount(vatInput)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("صافي ضريبة القيمة المضافة للإقرار الكلي:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("${formatAmount(Math.abs(netVatPayable))} ﷼", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = if (netVatPayable >= 0) RoseCrimson else TealAccent)
+                            }
+                        }
+                    }
+                }
+
+                // 2. Zakat Section
+                item {
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("تقديرات الزكاة الشرعية (2.5٪)", fontWeight = FontWeight.Bold, color = AmberGold, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("محسوبة طبقاً للمتطلبات التنظيمية لهيئة الزكاة والضريبة والجمارك.", fontSize = 10.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("رأس المال المدرج والمثبت - 3101:", fontSize = 12.sp)
+                                Text("${formatAmount(capital)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("صافي ربح الفترة الخاضع لأوعية الاستقطاع:", fontSize = 12.sp)
+                                Text("${formatAmount(incomeData.netIncome)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("مخصصات زكوية وضريبية قائمة - 2301:", fontSize = 12.sp)
+                                Text("${formatAmount(zakatProvision)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("الوعاء الزكوي التقريبي الكلي للفترة:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("${formatAmount(zakatBase)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("الزكاة الشرعية المستحقة المتوقعة (2.5٪):", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                Text("${formatAmount(zakatAmt)} ﷼", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = AmberGold)
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (reportsModeToggle == 3) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                item {
+                    Text("المساعد المحاسبي الذكي", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("مدعوم بتقنية Gemini لتحليل الأداء المالي بلمسة واحدة.", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Button(onClick = onAnalyze, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
+                        Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("بدء التحليل المالي", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (aiAnalysisResult != null) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("نتيجة التحليل والاستنتاجات:", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(aiAnalysisResult, fontSize = 14.sp, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }

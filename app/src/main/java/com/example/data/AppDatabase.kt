@@ -50,6 +50,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        fun resetDatabase(context: Context) {
+            synchronized(this) {
+                try {
+                    INSTANCE?.close()
+                } catch (e: Exception) {
+                    android.util.Log.e("AppDatabase", "Error closing DB", e)
+                }
+                INSTANCE = null
+                context.deleteDatabase("accounting_database")
+            }
+        }
+
         suspend fun seedDefaultAccounts(accountDao: AccountDao) = withContext(Dispatchers.IO) {
             try {
                 // Check if already populated

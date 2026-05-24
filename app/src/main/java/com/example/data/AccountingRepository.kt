@@ -23,8 +23,54 @@ class AccountingRepository(private val db: AppDatabase) {
     val allMovements: Flow<List<StockMovementEntity>> = productDao.getAllMovements()
 
     // --- Seed helper in case it didn't trigger ---
-    suspend fun checkAndSeed() {
-        AppDatabase.seedDefaultAccounts(accountDao)
+    suspend fun checkAndSeed() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            AppDatabase.seedDefaultAccounts(accountDao)
+            // Ensure VAT Output account (Liabilities) exists
+            val vatOutput = accountDao.getAccountByCode("2201")
+            if (vatOutput == null) {
+                val liabilities = accountDao.getAccountByCode("2000")
+                accountDao.insertAccount(
+                    AccountEntity(
+                        code = "2201",
+                        nameAr = "ضريبة القيمة المضافة المستحقة (مخرجات)",
+                        nameEn = "VAT Output Tax",
+                        type = "LIABILITIES",
+                        parentId = liabilities?.id
+                    )
+                )
+            }
+            // Ensure VAT Input account (Assets) exists
+            val vatInput = accountDao.getAccountByCode("1401")
+            if (vatInput == null) {
+                val assets = accountDao.getAccountByCode("1000")
+                accountDao.insertAccount(
+                    AccountEntity(
+                        code = "1401",
+                        nameAr = "ضريبة القيمة المضافة المستردة (مدخلات)",
+                        nameEn = "VAT Input Tax",
+                        type = "ASSETS",
+                        parentId = assets?.id
+                    )
+                )
+            }
+            // Ensure Zakat Provision account exists
+            val zakatProvision = accountDao.getAccountByCode("2301")
+            if (zakatProvision == null) {
+                val liabilities = accountDao.getAccountByCode("2000")
+                accountDao.insertAccount(
+                    AccountEntity(
+                        code = "2301",
+                        nameAr = "مخصص الزكاة الشرعية المستحقة",
+                        nameEn = "Provision for Zakat & Taxes",
+                        type = "LIABILITIES",
+                        parentId = liabilities?.id
+                    )
+                )
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("AccountingRepository", "Failed to dynamically seed VAT/Zakat accounts or initialize DB", t)
+        }
     }
 
     // --- Accounts Transactions ---
@@ -226,35 +272,36 @@ class AccountingRepository(private val db: AppDatabase) {
             )
         )
 
-        // 3. Create Balanced Accounting Entry!
-        // We will Debit Cash/Bank (Selected by user, 1101 or 1102) of quantity * price
-        // We will Credit Sales Revenue (4101) of quantity * price
-        // AND We also automatically record COGS (Cost of goods sold)!
-        // We Debit COGS (5101) of quantity * product.cost
-        // We Credit Inventory (1301) of quantity * product.cost
-        // This is pure, elite double entry engine!
-
+        // 3. Create Balanced Accounting Entry with VAT 15%!
         val revenueAcc = accountDao.getAccountByCode("4101") ?: return
         val invAcc = accountDao.getAccountByCode("1301") ?: return
         val cogsAcc = accountDao.getAccountByCode("5101") ?: return
+        val vatOutputAcc = accountDao.getAccountByCode("2201")
 
         val saleAmount = quantity * price
+        val vatAmount = saleAmount * 0.15
+        val totalAmountCollected = saleAmount + vatAmount
         val costAmount = quantity * product.cost
 
         val entryNo = "SI-INV-${timestamp % 100000}"
         val entry = JournalEntryEntity(
             entryNumber = entryNo,
             date = timestamp,
-            description = "مبيعات إلى ${customer.name} - منتج: ${product.name} (عدد: $quantity)",
+            description = "مبيعات إلى ${customer.name} - منتج: ${product.name} (شامل ضريبة 15٪)",
             status = "POSTED"
         )
 
         val lines = mutableListOf(
-            // Debit Cash/Bank (cashAccountId)
-            JournalEntryLineEntity(entryId = 0, accountId = cashAccountId, debit = saleAmount, credit = 0.0, description = "تحصيل قيمة مبيعات"),
-            // Credit Sales Revenue (revenueAcc.id)
-            JournalEntryLineEntity(entryId = 0, accountId = revenueAcc.id, debit = 0.0, credit = saleAmount, description = "إيراد مبيعات")
+            // Debit Cash/Bank (cashAccountId) -> Total Amount Collected
+            JournalEntryLineEntity(entryId = 0, accountId = cashAccountId, debit = totalAmountCollected, credit = 0.0, description = "تحصيل قيمة مبيعات شامل الضريبة"),
+            // Credit Sales Revenue (revenueAcc.id) -> Base Sale Amount
+            JournalEntryLineEntity(entryId = 0, accountId = revenueAcc.id, debit = 0.0, credit = saleAmount, description = "إيراد مبيعات مستقل")
         )
+
+        // Credit VAT Output Tax -> 15% VAT Liability
+        if (vatOutputAcc != null && vatAmount > 0.0) {
+            lines.add(JournalEntryLineEntity(entryId = 0, accountId = vatOutputAcc.id, debit = 0.0, credit = vatAmount, description = "ضريبة القيمة المضافة مخرجات (15٪)"))
+        }
 
         // Insert COGS lines if it's a PRODUCT with actual inventory cost tracking
         if (product.type == "PRODUCT" && costAmount > 0.0) {
@@ -307,26 +354,33 @@ class AccountingRepository(private val db: AppDatabase) {
             )
         )
 
-        // 3. Create Balanced Accounting Entry!
-        // We Debit Inventory (1301) for the value of quantity * cost
-        // We Credit Cash/Bank (selected payment account 1101 or 1102) for the same value
+        // 3. Create Balanced Accounting Entry with VAT 15%!
         val invAcc = accountDao.getAccountByCode("1301") ?: return
+        val vatInputAcc = accountDao.getAccountByCode("1401")
 
         val purchaseAmount = quantity * cost
+        val vatAmount = purchaseAmount * 0.15
+        val totalPaidAmount = purchaseAmount + vatAmount
+
         val entryNo = "PI-INV-${timestamp % 100000}"
         val entry = JournalEntryEntity(
             entryNumber = entryNo,
             date = timestamp,
-            description = "مشتريات من ${supplier.name} - منتج: ${product.name} (عدد: $quantity)",
+            description = "مشتريات من ${supplier.name} - منتج: ${product.name} (شامل ضريبة 15٪)",
             status = "POSTED"
         )
 
-        val lines = listOf(
+        val lines = mutableListOf(
             // Debit Inventory (invAcc.id)
             JournalEntryLineEntity(entryId = 0, accountId = invAcc.id, debit = purchaseAmount, credit = 0.0, description = "توريد بضاعة للمخزن"),
             // Credit Cash/Bank (paymentAccountId)
-            JournalEntryLineEntity(entryId = 0, accountId = paymentAccountId, debit = 0.0, credit = purchaseAmount, description = "سداد قيمة مشتريات")
+            JournalEntryLineEntity(entryId = 0, accountId = paymentAccountId, debit = 0.0, credit = totalPaidAmount, description = "سداد قيمة مشتريات شامل الضريبة")
         )
+
+        // Debit VAT Input Tax (asset)
+        if (vatInputAcc != null && vatAmount > 0.0) {
+            lines.add(JournalEntryLineEntity(entryId = 0, accountId = vatInputAcc.id, debit = vatAmount, credit = 0.0, description = "ضريبة القيمة المضافة مدخلات (15٪)"))
+        }
 
         saveJournalEntry(entry, lines)
     }
