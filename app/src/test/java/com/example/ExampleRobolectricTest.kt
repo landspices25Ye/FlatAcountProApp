@@ -2,6 +2,8 @@ package com.example
 
 import android.content.Context
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -40,7 +42,7 @@ class ExampleRobolectricTest {
     )
 
     for (tabTitle in tabs) {
-      composeTestRule.onNodeWithText(tabTitle).performClick()
+      composeTestRule.onAllNodesWithText(tabTitle).onFirst().performClick()
       composeTestRule.waitForIdle()
     }
   }

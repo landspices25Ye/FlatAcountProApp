@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,10 +30,11 @@ import com.example.data.*
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 enum class ActiveTab(val titleAr: String, val icon: ImageVector) {
     OVERVIEW("الرئيسية", Icons.Default.Home),
-    ACCOUNTS("الحسابات (دليل)", Icons.Default.List),
+    ACCOUNTS("الحسابات (دليل)", Icons.AutoMirrored.Filled.List),
     JOURNAL("القيود اليومية", Icons.Default.Edit),
     TRIAL_BALANCE("دفتر الميزان", Icons.Default.CheckCircle),
     INVOICING("الفواتير", Icons.Default.ShoppingCart),
@@ -66,63 +68,136 @@ fun DashboardScreen(
 
     val selectedLedgerId by viewModel.selectedLedgerAccountId.collectAsStateWithLifecycle()
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "المحاسب المالي المحترف ERP",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "UTC: 2026",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            )
-        },
-        bottomBar = {
-            Row(
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
-                    .navigationBarsPadding() // Avoid overlapping with device navigation keys
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .width(300.dp)
+                    .fillMaxHeight(),
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                drawerContentColor = MaterialTheme.colorScheme.onSurface
             ) {
-                Spacer(modifier = Modifier.width(4.dp))
-                ActiveTab.values().forEach { tab ->
-                    FilterChip(
-                        selected = currentTab == tab,
-                        onClick = { currentTab = tab },
-                        label = { Text(tab.titleAr) },
-                        leadingIcon = { Icon(tab.icon, contentDescription = tab.titleAr, modifier = Modifier.size(18.dp)) }
+                Spacer(modifier = Modifier.statusBarsPadding())
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBox,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "المحاسب المالي ERP",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "نظام إدارة الحسابات المتكامل",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.width(4.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+                ActiveTab.values().forEach { tab ->
+                    val isSelected = currentTab == tab
+                    NavigationDrawerItem(
+                        icon = { Icon(tab.icon, contentDescription = tab.titleAr, modifier = Modifier.size(20.dp)) },
+                        label = { Text(tab.titleAr, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        selected = isSelected,
+                        onClick = {
+                            currentTab = tab
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        colors = NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            unselectedContainerColor = Color.Transparent,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
+    ) {
+        Scaffold(
+            modifier = modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = "القائمة الجانبية",
+                                tint = Color.White
+                            )
+                        }
+                    },
+                    title = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "المحاسب المالي المحترف ERP",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "UTC: 2026",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+            },
+            bottomBar = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
+                        .navigationBarsPadding() // Avoid overlapping with device navigation keys
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    ActiveTab.values().forEach { tab ->
+                        FilterChip(
+                            selected = currentTab == tab,
+                            onClick = { currentTab = tab },
+                            label = { Text(tab.titleAr) },
+                            leadingIcon = { Icon(tab.icon, contentDescription = tab.titleAr, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
             AnimatedContent(
                 targetState = currentTab,
                 transitionSpec = {
@@ -207,6 +282,7 @@ fun DashboardScreen(
             }
         }
     }
+}
 }
 
 // ----------------------------------------------------
@@ -578,7 +654,7 @@ fun AccountRow(account: AccountEntity, indent: Int) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (account.allowPosting) Icons.Default.Menu else Icons.Default.List,
+                    imageVector = if (account.allowPosting) Icons.Default.Menu else Icons.AutoMirrored.Filled.List,
                     contentDescription = "",
                     tint = if (account.allowPosting) TealAccent else PrimarySlate,
                     modifier = Modifier.size(16.dp)

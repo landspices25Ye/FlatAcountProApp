@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -32,27 +33,6 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
-
-    // Setup global uncaught exception handler to catch everything from main or background threads
-    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-      android.util.Log.e("MainActivity", "Uncaught exception on thread ${thread.name}", throwable)
-      try {
-        val sharedPrefs = getSharedPreferences("app_crashes", MODE_PRIVATE)
-        sharedPrefs.edit()
-          .putString("last_crash_report", throwable.stackTraceToString())
-          .commit() // Commit synchronously before killing the process
-        
-        val intent = packageManager.getLaunchIntentForPackage(packageName)
-        if (intent != null) {
-          intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-          startActivity(intent)
-        }
-      } catch (e: Exception) {
-        android.util.Log.e("MainActivity", "Error in global crash handler", e)
-      }
-      android.os.Process.killProcess(android.os.Process.myPid())
-      System.exit(10)
-    }
 
     // Load crash report from shared preferences if any, or intent extra
     val sharedPrefs = getSharedPreferences("app_crashes", MODE_PRIVATE)
@@ -177,7 +157,7 @@ class MainActivity : ComponentActivity() {
                   }
                 },
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp),
+                border = BorderStroke(1.dp, Color.White),
                 modifier = Modifier.fillMaxWidth()
               ) {
                 Text("محاولة التشغيل مجدداً")
