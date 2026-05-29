@@ -34,14 +34,11 @@ import kotlinx.coroutines.launch
 
 enum class ActiveTab(val titleAr: String, val icon: ImageVector) {
     OVERVIEW("الرئيسية", Icons.Default.Home),
-    ACCOUNTS("الحسابات (دليل)", Icons.AutoMirrored.Filled.List),
-    JOURNAL("القيود اليومية", Icons.Default.Edit),
-    TRIAL_BALANCE("دفتر الميزان", Icons.Default.CheckCircle),
+    FINANCIAL_ACCOUNTS("الحسابات والمالية", Icons.Default.AccountBox),
     INVOICING("المبيعات والفواتير", Icons.Default.ShoppingCart),
     PURCHASES("المشتريات والموردين", Icons.Default.ShoppingCart),
     INVENTORY("المخازن", Icons.Default.Build),
     HR_PAYROLL("شؤون الموظفين", Icons.Default.AccountBox),
-    REPORTS("التقارير المالية", Icons.Default.Menu),
     SETTINGS("الإعدادات والنظام", Icons.Default.Settings)
 }
 
@@ -236,34 +233,18 @@ fun DashboardScreen(
                         trialData = trialData,
                         journalList = journalList,
                         incomeData = incomeData,
-                        onNavigateToJournal = { currentTab = ActiveTab.JOURNAL }
+                        onNavigateToJournal = { currentTab = ActiveTab.FINANCIAL_ACCOUNTS }
                     )
-                    ActiveTab.ACCOUNTS -> AccountsTab(
+                    ActiveTab.FINANCIAL_ACCOUNTS -> FinancialAccountsTab(
+                        viewModel = viewModel,
                         accounts = accountList,
-                        trialData = trialData,
-                        onAddAccount = { code, nameAr, nameEn, type, parent ->
-                            viewModel.addAccount(code, nameAr, nameEn, type, parent, true)
-                        },
-                        onDeleteAccount = { account ->
-                            viewModel.deleteAccount(account)
-                        }
-                    )
-                    ActiveTab.JOURNAL -> JournalTab(
-                        accounts = accountList,
-                        entries = journalList,
-                        onAddEntry = { desc, date, no, lines ->
-                            viewModel.addManualJournalEntry(desc, date, no, lines)
-                        },
-                        onPostEntry = { id -> viewModel.postJournalEntry(id) },
-                        onDeleteEntry = { id -> viewModel.deleteJournalEntry(id) },
-                        onReverseEntry = { id -> viewModel.reverseJournalEntry(id) }
-                    )
-                    ActiveTab.TRIAL_BALANCE -> TrialBalanceAndLedgerTab(
+                        journalList = journalList,
                         trialData = trialData,
                         ledgerData = ledgerData,
-                        accounts = accountList,
-                        selectedLedgerId = selectedLedgerId,
-                        onSelectLedger = { id -> viewModel.selectLedgerAccount(id) }
+                        incomeData = incomeData,
+                        balanceSheetData = balanceSheetData,
+                        aiAnalysisResult = aiAnalysisResult,
+                        selectedLedgerId = selectedLedgerId
                     )
                     ActiveTab.INVOICING -> InvoicingTab(
                         partners = partnerList,
@@ -336,12 +317,6 @@ fun DashboardScreen(
                             viewModel.payPayrollSalary(record, cashAcc)
                         }
                     )
-                    ActiveTab.REPORTS -> ReportsTab(
-                        incomeData = incomeData,
-                        balanceSheetData = balanceSheetData,
-                        aiAnalysisResult = aiAnalysisResult,
-                        onAnalyze = { viewModel.analyzeFinancials() }
-                    )
                     ActiveTab.SETTINGS -> SettingsTab(
                         viewModel = viewModel
                     )
@@ -350,6 +325,78 @@ fun DashboardScreen(
         }
     }
 }
+}
+
+@Composable
+fun FinancialAccountsTab(
+    viewModel: AccountingViewModel,
+    accounts: List<AccountEntity>,
+    journalList: List<JournalEntryWithOwner>,
+    trialData: TrialBalanceData,
+    ledgerData: List<LedgerTransaction>,
+    incomeData: IncomeStatementData,
+    balanceSheetData: BalanceSheetData,
+    aiAnalysisResult: String?,
+    selectedLedgerId: Long?
+) {
+    var selectedSubTab by remember { mutableStateOf(0) }
+    val subTabs = listOf("دليل الحسابات", "القيود اليومية", "دفتر الميزان", "التقارير المالية")
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        ScrollableTabRow(
+            selectedTabIndex = selectedSubTab,
+            edgePadding = 8.dp,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            subTabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedSubTab == index,
+                    onClick = { selectedSubTab = index },
+                    text = { Text(title) }
+                )
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+            when (selectedSubTab) {
+                0 -> AccountsTab(
+                    accounts = accounts,
+                    trialData = trialData,
+                    onAddAccount = { code, nameAr, nameEn, type, parent ->
+                        viewModel.addAccount(code, nameAr, nameEn, type, parent, true)
+                    },
+                    onDeleteAccount = { account ->
+                        viewModel.deleteAccount(account)
+                    }
+                )
+                1 -> JournalTab(
+                    accounts = accounts,
+                    entries = journalList,
+                    onAddEntry = { desc, date, no, lines ->
+                        viewModel.addManualJournalEntry(desc, date, no, lines)
+                    },
+                    onPostEntry = { id -> viewModel.postJournalEntry(id) },
+                    onDeleteEntry = { id -> viewModel.deleteJournalEntry(id) },
+                    onReverseEntry = { id -> viewModel.reverseJournalEntry(id) }
+                )
+                2 -> TrialBalanceAndLedgerTab(
+                    trialData = trialData,
+                    ledgerData = ledgerData,
+                    accounts = accounts,
+                    selectedLedgerId = selectedLedgerId,
+                    onSelectLedger = { id -> viewModel.selectLedgerAccount(id) }
+                )
+                3 -> ReportsTab(
+                    incomeData = incomeData,
+                    balanceSheetData = balanceSheetData,
+                    aiAnalysisResult = aiAnalysisResult,
+                    onAnalyze = { viewModel.analyzeFinancials() }
+                )
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------

@@ -181,6 +181,103 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Table: purchase_orders
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_orders` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `orderNumber` TEXT NOT NULL, 
+                        `supplierId` INTEGER NOT NULL, 
+                        `date` INTEGER NOT NULL, 
+                        `status` TEXT NOT NULL, 
+                        `subtotal` REAL NOT NULL, 
+                        `vat` REAL NOT NULL, 
+                        `grandTotal` REAL NOT NULL
+                    )
+                """.trimIndent())
+
+                // Table: purchase_order_lines
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_order_lines` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `orderId` INTEGER NOT NULL, 
+                        `productId` INTEGER NOT NULL, 
+                        `quantity` REAL NOT NULL, 
+                        `price` REAL NOT NULL, 
+                        `discount` REAL NOT NULL, 
+                        FOREIGN KEY(`orderId`) REFERENCES `purchase_orders`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchase_order_lines_orderId` ON `purchase_order_lines` (`orderId`)")
+
+                // Table: purchase_invoices
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_invoices` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `invoiceNumber` TEXT NOT NULL, 
+                        `supplierId` INTEGER NOT NULL, 
+                        `date` INTEGER NOT NULL, 
+                        `dueDate` INTEGER NOT NULL, 
+                        `status` TEXT NOT NULL, 
+                        `isCredit` INTEGER NOT NULL, 
+                        `subtotal` REAL NOT NULL, 
+                        `vat` REAL NOT NULL, 
+                        `grandTotal` REAL NOT NULL, 
+                        `paidAmount` REAL NOT NULL, 
+                        `paymentAccountOrCashId` INTEGER, 
+                        `associatedJournalEntryId` INTEGER,
+                        `landedCostsAllocated` REAL NOT NULL,
+                        `landedAllocationMethod` TEXT NOT NULL
+                    )
+                """.trimIndent())
+
+                // Table: purchase_invoice_lines
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_invoice_lines` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `invoiceId` INTEGER NOT NULL, 
+                        `productId` INTEGER NOT NULL, 
+                        `quantity` REAL NOT NULL, 
+                        `price` REAL NOT NULL, 
+                        `discount` REAL NOT NULL, 
+                        `landedCostShare` REAL NOT NULL, 
+                        `returnedQuantity` REAL NOT NULL, 
+                        FOREIGN KEY(`invoiceId`) REFERENCES `purchase_invoices`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchase_invoice_lines_invoiceId` ON `purchase_invoice_lines` (`invoiceId`)")
+
+                // Table: purchase_returns
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_returns` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `returnNumber` TEXT NOT NULL, 
+                        `invoiceId` INTEGER NOT NULL, 
+                        `date` INTEGER NOT NULL, 
+                        `reason` TEXT NOT NULL, 
+                        `refundAmount` REAL NOT NULL, 
+                        `associatedJournalEntryId` INTEGER, 
+                        FOREIGN KEY(`invoiceId`) REFERENCES `purchase_invoices`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchase_returns_invoiceId` ON `purchase_returns` (`invoiceId`)")
+
+                // Table: purchase_return_lines
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `purchase_return_lines` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `returnId` INTEGER NOT NULL, 
+                        `productId` INTEGER NOT NULL, 
+                        `quantity` REAL NOT NULL, 
+                        `price` REAL NOT NULL, 
+                        FOREIGN KEY(`returnId`) REFERENCES `purchase_returns`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchase_return_lines_returnId` ON `purchase_return_lines` (`returnId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -188,7 +285,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "accounting_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration(true)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()
