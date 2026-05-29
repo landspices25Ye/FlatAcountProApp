@@ -9,8 +9,9 @@ import kotlinx.coroutines.launch
 
 class AccountingViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val db = AppDatabase.getDatabase(application)
-    private val repository = AccountingRepository(db)
+    private val container = com.example.core.di.ServiceContainer.getInstance()
+    private val db = container.database
+    private val repository = container.repository
 
     // --- State Streams from Database ---
     val accounts: StateFlow<List<AccountEntity>> = repository.allAccounts
@@ -62,9 +63,128 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val quotations: StateFlow<List<SalesQuotationWithOwner>> = repository.allQuotations
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading quotations", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val salesInvoices: StateFlow<List<SalesInvoiceWithOwner>> = repository.allInvoices
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading sales invoices", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val salesReturns: StateFlow<List<SalesReturnWithOwner>> = repository.allReturns
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading sales returns", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // --- Search/Filter states ---
     private val _selectedLedgerAccountId = MutableStateFlow<Long?>(null)
     val selectedLedgerAccountId: StateFlow<Long?> = _selectedLedgerAccountId.asStateFlow()
+
+    // --- Settings flows using SettingsManager ---
+    private val settingsManager = container.settingsManager
+
+    private val _companyProfile = MutableStateFlow(settingsManager.getCompanyProfile())
+    val companyProfile: StateFlow<com.example.core.settings.CompanyProfile> = _companyProfile.asStateFlow()
+
+    private val _fiscalPeriods = MutableStateFlow(settingsManager.getFiscalPeriods())
+    val fiscalPeriods: StateFlow<List<com.example.core.settings.FiscalPeriod>> = _fiscalPeriods.asStateFlow()
+
+    private val _numberSequences = MutableStateFlow(settingsManager.getNumberSequences())
+    val numberSequences: StateFlow<List<com.example.core.settings.NumberSequence>> = _numberSequences.asStateFlow()
+
+    private val _unitsOfMeasure = MutableStateFlow(settingsManager.getUnitsOfMeasure())
+    val unitsOfMeasure: StateFlow<List<com.example.core.settings.UnitOfMeasure>> = _unitsOfMeasure.asStateFlow()
+
+    private val _costCenters = MutableStateFlow(settingsManager.getCostCenters())
+    val costCenters: StateFlow<List<com.example.core.settings.CostCenter>> = _costCenters.asStateFlow()
+
+    private val _notificationToggles = MutableStateFlow(settingsManager.getNotificationToggles())
+    val notificationToggles: StateFlow<Map<String, Boolean>> = _notificationToggles.asStateFlow()
+
+    private val _auditLogs = MutableStateFlow(settingsManager.getAuditLogs())
+    val auditLogs: StateFlow<List<com.example.core.settings.AuditLog>> = _auditLogs.asStateFlow()
+
+    private val _syncSummary = MutableStateFlow(settingsManager.getSyncSummary())
+    val syncSummary: StateFlow<com.example.core.settings.SettingsManager.SyncSummary> = _syncSummary.asStateFlow()
+
+    fun updateCompanyProfile(profile: com.example.core.settings.CompanyProfile) {
+        settingsManager.saveCompanyProfile(profile)
+        _companyProfile.value = settingsManager.getCompanyProfile()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun updateFiscalPeriodStatus(id: String, newStatus: String) {
+        settingsManager.updateFiscalPeriodStatus(id, newStatus)
+        _fiscalPeriods.value = settingsManager.getFiscalPeriods()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun setLinkedAccountCode(key: String, code: String) {
+        settingsManager.setLinkedAccountCode(key, code)
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun resetLinkedAccountsToDefaults() {
+        settingsManager.resetToDefaults()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun updateSequence(type: String, newPrefix: String, newCurrent: Int) {
+        settingsManager.updateSequence(type, newPrefix, newCurrent)
+        _numberSequences.value = settingsManager.getNumberSequences()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun addUnitOfMeasure(name: String, symbol: String, baseUnitId: String?, factor: Double) {
+        settingsManager.addUnitOfMeasure(name, symbol, baseUnitId, factor)
+        _unitsOfMeasure.value = settingsManager.getUnitsOfMeasure()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun deleteUnitOfMeasure(id: String) {
+        settingsManager.deleteUnitOfMeasure(id)
+        _unitsOfMeasure.value = settingsManager.getUnitsOfMeasure()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun addCostCenter(code: String, name: String, parentId: String?) {
+        settingsManager.addCostCenter(code, name, parentId)
+        _costCenters.value = settingsManager.getCostCenters()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun deleteCostCenter(id: String) {
+        settingsManager.deleteCostCenter(id)
+        _costCenters.value = settingsManager.getCostCenters()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun updateNotificationToggle(key: String, enabled: Boolean) {
+        settingsManager.updateNotificationToggle(key, enabled)
+        _notificationToggles.value = settingsManager.getNotificationToggles()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun clearAuditLogs() {
+        settingsManager.clearAuditLogs()
+        _auditLogs.value = settingsManager.getAuditLogs()
+    }
+
+    fun forceSync(context: android.content.Context, onSyncFinished: () -> Unit = {}) {
+        settingsManager.forceSync(context) {
+            _syncSummary.value = settingsManager.getSyncSummary()
+            _auditLogs.value = settingsManager.getAuditLogs()
+            onSyncFinished()
+        }
+    }
 
     init {
         // Seed default accounts initially if database is fresh
@@ -77,6 +197,18 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
+    private fun handleException(t: Throwable) {
+        android.util.Log.e("AccountingViewModel", "Operation error captured", t)
+        _errorMessage.value = t.message ?: "حدث خطأ غير متوقع أثناء المعالجة"
+    }
+
     fun selectLedgerAccount(id: Long?) {
         _selectedLedgerAccountId.value = id
     }
@@ -84,103 +216,263 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     // --- Account operations ---
     fun addAccount(code: String, nameAr: String, nameEn: String, type: String, parentId: Long?, allowPosting: Boolean) {
         viewModelScope.launch {
-            repository.addAccount(
-                AccountEntity(
-                    code = code,
-                    nameAr = nameAr,
-                    nameEn = nameEn,
-                    type = type,
-                    parentId = parentId,
-                    allowPosting = allowPosting
+            try {
+                repository.addAccount(
+                    AccountEntity(
+                        code = code,
+                        nameAr = nameAr,
+                        nameEn = nameEn,
+                        type = type,
+                        parentId = parentId,
+                        allowPosting = allowPosting
+                    )
                 )
-            )
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun deleteAccount(account: AccountEntity) {
+        viewModelScope.launch {
+            try {
+                repository.deleteAccount(account)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Journal Entry operations ---
     fun addManualJournalEntry(description: String, date: Long, entryNo: String, draftLines: List<Pair<Long, Pair<Double, Double>>>) {
         viewModelScope.launch {
-            val entryObj = JournalEntryEntity(
-                entryNumber = entryNo,
-                date = date,
-                description = description,
-                status = "DRAFT"
-            )
-            val linesObj = draftLines.map { (accId, debCred) ->
-                JournalEntryLineEntity(
-                    entryId = 0,
-                    accountId = accId,
-                    debit = debCred.first,
-                    credit = debCred.second,
-                    description = description
+            try {
+                val entryObj = JournalEntryEntity(
+                    entryNumber = entryNo,
+                    date = date,
+                    description = description,
+                    status = "DRAFT"
                 )
+                val linesObj = draftLines.map { (accId, debCred) ->
+                    JournalEntryLineEntity(
+                        entryId = 0,
+                        accountId = accId,
+                        debit = debCred.first,
+                        credit = debCred.second,
+                        description = description
+                    )
+                }
+                repository.saveJournalEntry(entryObj, linesObj)
+            } catch (t: Throwable) {
+                handleException(t)
             }
-            repository.saveJournalEntry(entryObj, linesObj)
         }
     }
 
     fun postJournalEntry(id: Long) {
         viewModelScope.launch {
-            repository.postJournalEntry(id)
+            try {
+                repository.postJournalEntry(id)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun reverseJournalEntry(id: Long) {
+        viewModelScope.launch {
+            try {
+                repository.reverseJournalEntry(id)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun closePeriod(periodId: String) {
+        viewModelScope.launch {
+            try {
+                repository.closePeriod(periodId)
+                // update local state of fiscal period list as it is stored in SharedPreferences
+                _fiscalPeriods.value = settingsManager.getFiscalPeriods()
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     fun deleteJournalEntry(id: Long) {
         viewModelScope.launch {
-            repository.deleteJournalEntry(id)
+            try {
+                repository.deleteJournalEntry(id)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Partner operations ---
     fun addPartner(name: String, type: String, phone: String, email: String, limit: Double) {
         viewModelScope.launch {
-            repository.addPartner(PartnerEntity(name = name, type = type, phone = phone, email = email, creditLimit = limit))
+            try {
+                repository.addPartner(PartnerEntity(name = name, type = type, phone = phone, email = email, creditLimit = limit))
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Product operations ---
     fun addProduct(code: String, name: String, price: Double, cost: Double, minStock: Double, type: String) {
         viewModelScope.launch {
-            repository.addProduct(ProductEntity(code = code, name = name, price = price, cost = cost, minStock = minStock, type = type))
+            try {
+                repository.addProduct(ProductEntity(code = code, name = name, price = price, cost = cost, minStock = minStock, type = type))
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Inventory adjustments ---
     fun adjustStock(productId: Long, qtyChange: Double, description: String) {
         viewModelScope.launch {
-            repository.recordStockAdjustment(productId, qtyChange, description, System.currentTimeMillis())
+            try {
+                repository.recordStockAdjustment(productId, qtyChange, description, System.currentTimeMillis())
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Invoicing integrations with automatic double entries ---
     fun recordSaleInvoice(customerId: Long, productId: Long, quantity: Double, price: Double, cashAccountId: Long) {
         viewModelScope.launch {
-            repository.addSalesInvoice(customerId, productId, quantity, price, cashAccountId, System.currentTimeMillis())
+            try {
+                repository.addSalesInvoice(customerId, productId, quantity, price, cashAccountId, System.currentTimeMillis())
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     fun recordPurchaseInvoice(supplierId: Long, productId: Long, quantity: Double, cost: Double, paymentAccountId: Long) {
         viewModelScope.launch {
-            repository.addPurchaseInvoice(supplierId, productId, quantity, cost, paymentAccountId, System.currentTimeMillis())
+            try {
+                repository.addPurchaseInvoice(supplierId, productId, quantity, cost, paymentAccountId, System.currentTimeMillis())
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    // --- Quotations (عروض الأسعار) Operations ---
+    fun createQuotation(customerId: Long, expiryDate: Long, items: List<Pair<Long, Pair<Double, Double>>>) {
+        viewModelScope.launch {
+            try {
+                repository.createQuotation(customerId, expiryDate, items)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun convertQuotationToInvoice(quotationId: Long, cashAccountId: Long?, isCredit: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.convertQuotationToInvoice(quotationId, cashAccountId, isCredit)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    // --- Enhanced Sales Invoicing Operations ---
+    fun createSalesInvoiceDraft(
+        customerId: Long,
+        date: Long,
+        dueDate: Long,
+        isCredit: Boolean,
+        paymentAccountId: Long?,
+        lines: List<Pair<Long, Pair<Double, Double>>>
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.createSalesInvoiceDraft(customerId, date, dueDate, isCredit, paymentAccountId, lines)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun confirmSalesInvoice(invoiceId: Long, paymentAccountId: Long?) {
+        viewModelScope.launch {
+            try {
+                repository.confirmSalesInvoice(invoiceId, paymentAccountId)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun deleteSalesInvoice(id: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deleteSalesInvoice(id)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    fun recordInvoicePayment(invoiceId: Long, amount: Double, paymentAccountId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.recordInvoicePayment(invoiceId, amount, paymentAccountId)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
+        }
+    }
+
+    // --- Sales Return Operations ---
+    fun recordSalesReturn(invoiceId: Long, reason: String, itemsToReturn: List<Pair<Long, Double>>) {
+        viewModelScope.launch {
+            try {
+                repository.recordSalesReturn(invoiceId, reason, itemsToReturn)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     // --- Employee & payroll ---
     fun addEmployee(code: String, name: String, department: String, phone: String, salary: Double) {
         viewModelScope.launch {
-            repository.addEmployee(EmployeeEntity(code = code, name = name, department = department, phone = phone, basicSalary = salary))
+            try {
+                repository.addEmployee(EmployeeEntity(code = code, name = name, department = department, phone = phone, basicSalary = salary))
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     fun generatePayroll(month: String, allowances: Double, deductions: Double) {
         viewModelScope.launch {
-            repository.generatePayroll(month, allowances, deductions)
+            try {
+                repository.generatePayroll(month, allowances, deductions)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
     fun payPayrollSalary(record: PayrollRecordEntity, cashAccountId: Long) {
         viewModelScope.launch {
-            repository.processPayrollPayment(record, System.currentTimeMillis(), cashAccountId)
+            try {
+                repository.processPayrollPayment(record, System.currentTimeMillis(), cashAccountId)
+            } catch (t: Throwable) {
+                handleException(t)
+            }
         }
     }
 
@@ -316,6 +608,181 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             
             val result = geminiService.analyzeFinancials(incomeListForPrompt, tbData)
             _aiAnalysisResult.value = result
+        }
+    }
+
+    // --- PURCHASE STREAMS ---
+    val purchaseOrders: StateFlow<List<PurchaseOrderWithOwner>> = repository.allPurchaseOrders
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading purchase orders", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val purchaseInvoices: StateFlow<List<PurchaseInvoiceWithOwner>> = repository.allPurchaseInvoices
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading purchase invoices", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val purchaseReturns: StateFlow<List<PurchaseReturnWithOwner>> = repository.allPurchaseReturns
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading purchase returns", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _supplierStatement = MutableStateFlow<List<SupplierStatementTx>>(emptyList())
+    val supplierStatement: StateFlow<List<SupplierStatementTx>> = _supplierStatement.asStateFlow()
+
+    fun loadSupplierStatement(supplierId: Long, fromDate: Long, toDate: Long) {
+        viewModelScope.launch {
+            try {
+                _supplierStatement.value = repository.getSupplierStatement(supplierId, fromDate, toDate)
+            } catch (e: Exception) {
+                _supplierStatement.value = emptyList()
+            }
+        }
+    }
+
+    // --- PURCHASE OPERATIONS ---
+    fun createPurchaseOrder(
+        supplierId: Long,
+        date: Long,
+        lines: List<Pair<Long, Pair<Double, Double>>>,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.createPurchaseOrder(supplierId, date, lines)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ غير معروف")
+            }
+        }
+    }
+
+    fun deletePurchaseOrder(id: Long, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.deletePurchaseOrder(id)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء الحذف")
+            }
+        }
+    }
+
+    fun confirmPurchaseOrder(id: Long, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.confirmPurchaseOrder(id)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء التأكيد")
+            }
+        }
+    }
+
+    fun convertOrderToInvoice(
+        orderId: Long,
+        paymentAccountId: Long?,
+        isCredit: Boolean,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.convertOrderToInvoice(orderId, paymentAccountId, isCredit)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء تحويل الأمر")
+            }
+        }
+    }
+
+    fun createPurchaseInvoice(
+        supplierId: Long,
+        date: Long,
+        dueDate: Long,
+        isCredit: Boolean,
+        paymentAccountId: Long?,
+        lines: List<Pair<Long, Pair<Double, Double>>>,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.createPurchaseInvoiceDraft(supplierId, date, dueDate, isCredit, paymentAccountId, lines)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء حفظ الفاتورة")
+            }
+        }
+    }
+
+    fun deletePurchaseInvoice(id: Long, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.deletePurchaseInvoice(id)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء الحذف")
+            }
+        }
+    }
+
+    fun confirmPurchaseInvoice(
+        invoiceId: Long,
+        paymentAccountId: Long?,
+        landedCosts: Double,
+        landedAllocationMethod: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.confirmPurchaseInvoice(invoiceId, paymentAccountId, landedCosts, landedAllocationMethod)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء تأكيد الفاتورة")
+            }
+        }
+    }
+
+    fun recordSupplierPayment(
+        invoiceId: Long,
+        amount: Double,
+        payAccountId: Long,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.recordSupplierPayment(invoiceId, amount, payAccountId)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء تسجيل السداد")
+            }
+        }
+    }
+
+    fun createPurchaseReturn(
+        invoiceId: Long,
+        reason: String,
+        itemsToReturn: List<Pair<Long, Double>>,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.createPurchaseReturn(invoiceId, reason, itemsToReturn)
+                onSuccess()
+            } catch (e: Exception) {
+                onError(e.message ?: "حدث خطأ أثناء معالجة المرتجع")
+            }
         }
     }
 }

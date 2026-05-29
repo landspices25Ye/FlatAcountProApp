@@ -31,22 +31,54 @@ import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Setup Global Uncaught Exception Handler
+    Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+      android.util.Log.e("FATAL_CRASH", "UNCAUGHT APPLICATION EXCEPTION OCCURRED!", throwable)
+      try {
+        val prefs = getSharedPreferences("app_crashes", MODE_PRIVATE)
+        val stackTrace = android.util.Log.getStackTraceString(throwable)
+        prefs.edit().putString("last_crash_report", stackTrace).commit()
+
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+          launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+          startActivity(launchIntent)
+        }
+      } catch (e: Exception) {
+        android.util.Log.e("MainActivity", "Failed in global exception handler", e)
+      } finally {
+        android.os.Process.killProcess(android.os.Process.myPid())
+        System.exit(10)
+      }
+    }
+
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    var initialError: Throwable? = null
+
+    // Initialize Core ServiceLocator
+    try {
+      com.example.core.di.ServiceContainer.initialize(this)
+    } catch (t: Throwable) {
+      android.util.Log.e("MainActivity", "Failed to initialize ServiceContainer", t)
+      initialError = t
+    }
 
     // Load crash report from shared preferences if any, or intent extra
     val sharedPrefs = getSharedPreferences("app_crashes", MODE_PRIVATE)
     val savedCrashReport = sharedPrefs.getString("last_crash_report", null)
-    var initialError: Throwable? = null
 
-    if (savedCrashReport != null) {
-      initialError = RuntimeException(savedCrashReport)
-      // Clear it so it doesn't show up again on standard launch
-      sharedPrefs.edit().remove("last_crash_report").apply()
-    } else {
-      val crashReportExtra = intent.getStringExtra("crash_report")
-      if (crashReportExtra != null) {
-        initialError = RuntimeException(crashReportExtra)
+    if (initialError == null) {
+      if (savedCrashReport != null) {
+        initialError = RuntimeException(savedCrashReport)
+        // Clear it so it doesn't show up again on standard launch
+        sharedPrefs.edit().remove("last_crash_report").apply()
+      } else {
+        val crashReportExtra = intent.getStringExtra("crash_report")
+        if (crashReportExtra != null) {
+          initialError = RuntimeException(crashReportExtra)
+        }
       }
     }
 
@@ -121,7 +153,7 @@ class MainActivity : ComponentActivity() {
                     color = Color(0xFFEF4444),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.verticalScroll(rememberScrollState()).heightIn(max = 200.dp)
+                    modifier = Modifier.fillMaxWidth()
                   )
                 }
               }

@@ -37,10 +37,12 @@ enum class ActiveTab(val titleAr: String, val icon: ImageVector) {
     ACCOUNTS("الحسابات (دليل)", Icons.AutoMirrored.Filled.List),
     JOURNAL("القيود اليومية", Icons.Default.Edit),
     TRIAL_BALANCE("دفتر الميزان", Icons.Default.CheckCircle),
-    INVOICING("الفواتير", Icons.Default.ShoppingCart),
+    INVOICING("المبيعات والفواتير", Icons.Default.ShoppingCart),
+    PURCHASES("المشتريات والموردين", Icons.Default.ShoppingCart),
     INVENTORY("المخازن", Icons.Default.Build),
     HR_PAYROLL("شؤون الموظفين", Icons.Default.AccountBox),
-    REPORTS("التقارير المالية", Icons.Default.Menu)
+    REPORTS("التقارير المالية", Icons.Default.Menu),
+    SETTINGS("الإعدادات والنظام", Icons.Default.Settings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,6 +61,12 @@ fun DashboardScreen(
     val employeeList by viewModel.employees.collectAsStateWithLifecycle()
     val payrollList by viewModel.payrolls.collectAsStateWithLifecycle()
     val stockMvList by viewModel.stockMovements.collectAsStateWithLifecycle()
+    val quotationList by viewModel.quotations.collectAsStateWithLifecycle()
+    val salesInvoiceList by viewModel.salesInvoices.collectAsStateWithLifecycle()
+    val salesReturnList by viewModel.salesReturns.collectAsStateWithLifecycle()
+    val purchaseOrderList by viewModel.purchaseOrders.collectAsStateWithLifecycle()
+    val purchaseInvoiceList by viewModel.purchaseInvoices.collectAsStateWithLifecycle()
+    val purchaseReturnList by viewModel.purchaseReturns.collectAsStateWithLifecycle()
 
     val trialData by viewModel.trialBalance.collectAsStateWithLifecycle()
     val ledgerData by viewModel.accountLedger.collectAsStateWithLifecycle()
@@ -67,9 +75,27 @@ fun DashboardScreen(
     val aiAnalysisResult by viewModel.aiAnalysisResult.collectAsStateWithLifecycle()
 
     val selectedLedgerId by viewModel.selectedLedgerAccountId.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    if (errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearErrorMessage() },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp)) },
+            title = { Text("تنبيه قواعد العمل المحاسبية", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
+            text = { Text(errorMessage ?: "", style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.clearErrorMessage() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("حسناً")
+                }
+            }
+        )
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -214,8 +240,12 @@ fun DashboardScreen(
                     )
                     ActiveTab.ACCOUNTS -> AccountsTab(
                         accounts = accountList,
+                        trialData = trialData,
                         onAddAccount = { code, nameAr, nameEn, type, parent ->
                             viewModel.addAccount(code, nameAr, nameEn, type, parent, true)
+                        },
+                        onDeleteAccount = { account ->
+                            viewModel.deleteAccount(account)
                         }
                     )
                     ActiveTab.JOURNAL -> JournalTab(
@@ -225,7 +255,8 @@ fun DashboardScreen(
                             viewModel.addManualJournalEntry(desc, date, no, lines)
                         },
                         onPostEntry = { id -> viewModel.postJournalEntry(id) },
-                        onDeleteEntry = { id -> viewModel.deleteJournalEntry(id) }
+                        onDeleteEntry = { id -> viewModel.deleteJournalEntry(id) },
+                        onReverseEntry = { id -> viewModel.reverseJournalEntry(id) }
                     )
                     ActiveTab.TRIAL_BALANCE -> TrialBalanceAndLedgerTab(
                         trialData = trialData,
@@ -238,6 +269,9 @@ fun DashboardScreen(
                         partners = partnerList,
                         products = productList,
                         accounts = accountList,
+                        quotations = quotationList,
+                        salesInvoices = salesInvoiceList,
+                        salesReturns = salesReturnList,
                         onAddPartner = { name, type, phone, email, limit ->
                             viewModel.addPartner(name, type, phone, email, limit)
                         },
@@ -249,7 +283,37 @@ fun DashboardScreen(
                         },
                         onRecordPurchase = { supp, prod, qty, cost, pAcc ->
                             viewModel.recordPurchaseInvoice(supp, prod, qty, cost, pAcc)
+                        },
+                        onCreateQuotation = { cust, exp, items ->
+                            viewModel.createQuotation(cust, exp, items)
+                        },
+                        onConvertQuotation = { qId, cashAcc, isCredit ->
+                            viewModel.convertQuotationToInvoice(qId, cashAcc, isCredit)
+                        },
+                        onCreateInvoiceDraft = { cust, d, due, isCredit, cashAcc, lines ->
+                            viewModel.createSalesInvoiceDraft(cust, d, due, isCredit, cashAcc, lines)
+                        },
+                        onConfirmInvoice = { invId, cashAcc ->
+                            viewModel.confirmSalesInvoice(invId, cashAcc)
+                        },
+                        onDeleteInvoice = { id ->
+                            viewModel.deleteSalesInvoice(id)
+                        },
+                        onRecordInvoicePayment = { invId, amt, pAcc ->
+                            viewModel.recordInvoicePayment(invId, amt, pAcc)
+                        },
+                        onRecordSalesReturn = { invId, reason, items ->
+                            viewModel.recordSalesReturn(invId, reason, items)
                         }
+                    )
+                    ActiveTab.PURCHASES -> PurchasesTab(
+                        viewModel = viewModel,
+                        partners = partnerList,
+                        products = productList,
+                        accounts = accountList,
+                        purchaseOrders = purchaseOrderList,
+                        purchaseInvoices = purchaseInvoiceList,
+                        purchaseReturns = purchaseReturnList
                     )
                     ActiveTab.INVENTORY -> InventoryTab(
                         products = productList,
@@ -277,6 +341,9 @@ fun DashboardScreen(
                         balanceSheetData = balanceSheetData,
                         aiAnalysisResult = aiAnalysisResult,
                         onAnalyze = { viewModel.analyzeFinancials() }
+                    )
+                    ActiveTab.SETTINGS -> SettingsTab(
+                        viewModel = viewModel
                     )
                 }
             }
@@ -469,9 +536,12 @@ fun OverviewTab(
 @Composable
 fun AccountsTab(
     accounts: List<AccountEntity>,
-    onAddAccount: (String, String, String, String, Long?) -> Unit
+    trialData: TrialBalanceData,
+    onAddAccount: (String, String, String, String, Long?) -> Unit,
+    onDeleteAccount: (AccountEntity) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     var codeInput by remember { mutableStateOf("") }
     var nameArInput by remember { mutableStateOf("") }
@@ -486,6 +556,16 @@ fun AccountsTab(
         "REVENUE" to "الإيرادات (Revenue)",
         "EXPENSE" to "المصروفات (Expenses)"
     )
+
+    val filteredAccounts = if (searchQuery.isBlank()) {
+        accounts
+    } else {
+        accounts.filter {
+            it.code.contains(searchQuery) ||
+            it.nameAr.contains(searchQuery) ||
+            it.nameEn.lowercase(Locale.ROOT).contains(searchQuery.lowercase(Locale.ROOT))
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -508,6 +588,20 @@ fun AccountsTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Search Filter TextField
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            placeholder = { Text("البحث برمز الحساب أو الاسم العربي/الإنجليزي...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+            )
+        )
+
         // Display sorted Chart Of Accounts tree inside unified list
         if (accounts.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -518,15 +612,40 @@ fun AccountsTab(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Render root parents and childs hierarchically
-                val roots = accounts.filter { it.parentId == null }
-                roots.forEach { parent ->
-                    item {
-                        AccountRow(account = parent, indent = 0)
+                if (searchQuery.isBlank()) {
+                    // Render root parents and childs hierarchically
+                    val roots = filteredAccounts.filter { it.parentId == null }
+                    roots.forEach { parent ->
+                        item {
+                            val balanceRow = trialData.rows.find { it.account.id == parent.id }
+                            AccountRow(
+                                account = parent, 
+                                indent = 0, 
+                                balance = balanceRow?.netBalance,
+                                onDeleteAccount = { onDeleteAccount(parent) }
+                            )
+                        }
+                        val children = filteredAccounts.filter { it.parentId == parent.id }
+                        items(children) { child ->
+                            val balanceRow = trialData.rows.find { it.account.id == child.id }
+                            AccountRow(
+                                account = child, 
+                                indent = 1, 
+                                balance = balanceRow?.netBalance,
+                                onDeleteAccount = { onDeleteAccount(child) }
+                            )
+                        }
                     }
-                    val children = accounts.filter { it.parentId == parent.id }
-                    items(children) { child ->
-                        AccountRow(account = child, indent = 1)
+                } else {
+                    items(filteredAccounts) { acc ->
+                        val balanceRow = trialData.rows.find { it.account.id == acc.id }
+                        val isChild = acc.parentId != null
+                        AccountRow(
+                            account = acc,
+                            indent = if (isChild) 1 else 0,
+                            balance = balanceRow?.netBalance,
+                            onDeleteAccount = { onDeleteAccount(acc) }
+                        )
                     }
                 }
             }
@@ -635,7 +754,12 @@ fun AccountsTab(
 }
 
 @Composable
-fun AccountRow(account: AccountEntity, indent: Int) {
+fun AccountRow(
+    account: AccountEntity,
+    indent: Int,
+    balance: Double?,
+    onDeleteAccount: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -652,12 +776,15 @@ fun AccountRow(account: AccountEntity, indent: Int) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
                 Icon(
-                    imageVector = if (account.allowPosting) Icons.Default.Menu else Icons.AutoMirrored.Filled.List,
-                    contentDescription = "",
-                    tint = if (account.allowPosting) TealAccent else PrimarySlate,
-                    modifier = Modifier.size(16.dp)
+                     imageVector = if (account.allowPosting) Icons.Default.Menu else Icons.AutoMirrored.Filled.List,
+                     contentDescription = "",
+                     tint = if (account.allowPosting) TealAccent else PrimarySlate,
+                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
@@ -670,37 +797,71 @@ fun AccountRow(account: AccountEntity, indent: Int) {
                     Text(account.nameEn, fontSize = 11.sp, color = Color.Gray)
                 }
             }
-            // Badge type Ar
-            Surface(
-                color = when (account.type) {
-                    "ASSETS" -> Color(0xFFE8F0FE)
-                    "LIABILITIES" -> Color(0xFFFCE8E6)
-                    "EQUITY" -> Color(0xFFFEF7E0)
-                    "REVENUE" -> Color(0xFFE6F4EA)
-                    else -> Color(0xFFF1F3F4)
-                },
-                shape = RoundedCornerShape(4.dp)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val label = when (account.type) {
-                    "ASSETS" -> "أصول"
-                    "LIABILITIES" -> "خصوم"
-                    "EQUITY" -> "حقوق"
-                    "REVENUE" -> "إيراد"
-                    else -> "مصروف"
+                // Balance amount
+                val amount = balance ?: 0.0
+                val balanceColor = when {
+                    amount > 0 -> Color(0xFF137333)
+                    amount < 0 -> Color(0xFFC5221F)
+                    else -> Color.Gray
                 }
                 Text(
-                    label,
-                    fontSize = 11.sp,
+                    text = "${formatAmount(amount)} ر.س",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = when (account.type) {
-                        "ASSETS" -> Color(0xFF1967D2)
-                        "LIABILITIES" -> Color(0xFFC5221F)
-                        "EQUITY" -> Color(0xFFB06000)
-                        "REVENUE" -> Color(0xFF137333)
-                        else -> Color(0xFF3C4043)
-                    },
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    color = balanceColor
                 )
+
+                // Badge type Ar
+                Surface(
+                    color = when (account.type) {
+                        "ASSETS" -> Color(0xFFE8F0FE)
+                        "LIABILITIES" -> Color(0xFFFCE8E6)
+                        "EQUITY" -> Color(0xFFFEF7E0)
+                        "REVENUE" -> Color(0xFFE6F4EA)
+                        else -> Color(0xFFF1F3F4)
+                    },
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    val label = when (account.type) {
+                        "ASSETS" -> "أصول"
+                        "LIABILITIES" -> "خصوم"
+                        "EQUITY" -> "حقوق"
+                        "REVENUE" -> "إيراد"
+                        else -> "مصروف"
+                    }
+                    Text(
+                        label,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when (account.type) {
+                            "ASSETS" -> Color(0xFF1967D2)
+                            "LIABILITIES" -> Color(0xFFC5221F)
+                            "EQUITY" -> Color(0xFFB06000)
+                            "REVENUE" -> Color(0xFF137333)
+                            else -> Color(0xFF3C4043)
+                        },
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Delete button (only show for user-defined accounts, hide if isDefault)
+                if (!account.isDefault) {
+                    IconButton(
+                        onClick = onDeleteAccount,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "حذف",
+                            tint = Color(0xFFC5221F)
+                        )
+                    }
+                }
             }
         }
     }
@@ -715,7 +876,8 @@ fun JournalTab(
     entries: List<JournalEntryWithOwner>,
     onAddEntry: (String, Long, String, List<Pair<Long, Pair<Double, Double>>>) -> Unit,
     onPostEntry: (Long) -> Unit,
-    onDeleteEntry: (Long) -> Unit
+    onDeleteEntry: (Long) -> Unit,
+    onReverseEntry: (Long) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -773,6 +935,7 @@ fun JournalTab(
                         entryAndLines = entryAndLines,
                         onPost = onPostEntry,
                         onDelete = onDeleteEntry,
+                        onReverse = onReverseEntry,
                         accounts = accounts
                     )
                 }
@@ -947,6 +1110,7 @@ fun JournalEntryWithOwnerCard(
     entryAndLines: JournalEntryWithOwner,
     onPost: (Long) -> Unit,
     onDelete: (Long) -> Unit,
+    onReverse: (Long) -> Unit,
     accounts: List<AccountEntity>
 ) {
     Card(
@@ -959,13 +1123,16 @@ fun JournalEntryWithOwnerCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(entryAndLines.entry.entryNumber, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(entryAndLines.entry.description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                     Text(formatDate(entryAndLines.entry.date), fontSize = 11.sp, color = Color.LightGray)
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     if (entryAndLines.entry.status == "DRAFT") {
                         Button(
                             onClick = { onPost(entryAndLines.entry.id) },
@@ -977,6 +1144,13 @@ fun JournalEntryWithOwnerCard(
                             Icon(Icons.Default.Delete, contentDescription = "حذف قيد", tint = Color.Red)
                         }
                     } else {
+                        // Reversion capability for posted entries (correction double entries)
+                        Button(
+                            onClick = { onReverse(entryAndLines.entry.id) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC5221F))
+                        ) {
+                            Text("عكس القيد", color = Color.White)
+                        }
                         Surface(
                             color = Color(0xFFE6F4EA),
                             shape = RoundedCornerShape(4.dp)
@@ -1181,45 +1355,69 @@ fun TrialBalanceAndLedgerTab(
     }
 }
 
-// ----------------------------------------------------
-// TAB 5: INVOICING & SALES/PURCHASES (الفواتير)
-// ----------------------------------------------------
 @Composable
-fun InvoicingTab(
+fun OldInvoicingTabHidden(
     partners: List<PartnerEntity>,
     products: List<ProductEntity>,
     accounts: List<AccountEntity>,
+    quotations: List<SalesQuotationWithOwner>,
+    salesInvoices: List<SalesInvoiceWithOwner>,
+    salesReturns: List<SalesReturnWithOwner>,
     onAddPartner: (String, String, String, String, Double) -> Unit,
     onAddProduct: (String, String, Double, Double, Double, String) -> Unit,
     onRecordSale: (Long, Long, Double, Double, Long) -> Unit,
-    onRecordPurchase: (Long, Long, Double, Double, Long) -> Unit
+    onRecordPurchase: (Long, Long, Double, Double, Long) -> Unit,
+    onCreateQuotation: (Long, Long, List<Pair<Long, Pair<Double, Double>>>) -> Unit,
+    onConvertQuotation: (Long, Long?, Boolean) -> Unit,
+    onCreateInvoiceDraft: (Long, Long, Long, Boolean, Long?, List<Pair<Long, Pair<Double, Double>>>) -> Unit,
+    onConfirmInvoice: (Long, Long?) -> Unit,
+    onDeleteInvoice: (Long) -> Unit,
+    onRecordInvoicePayment: (Long, Double, Long) -> Unit,
+    onRecordSalesReturn: (Long, String, List<Pair<Long, Double>>) -> Unit
 ) {
-    var invoicingMode by remember { mutableStateOf(0) } // 0: Sales Invoice, 1: Purchase Invoice, 2: Contacts Setup, 3: Products Add
+}
 
-    // Local lists
+/*
+fun OldInvoicingTabHiddenBody() {
+    var invoicingMode = 0
+
     val customers = partners.filter { it.type == "CUSTOMER" }
     val suppliers = partners.filter { it.type == "SUPPLIER" }
     val cashBankAccounts = accounts.filter { it.allowPosting && (it.code.startsWith("1101") || it.code.startsWith("1102")) }
 
-    // Forms entry elements state variables
+    // Dialog view management states
+    var showCreateQuoter by remember { mutableStateOf(false) }
+    var showCreateInvoicer by remember { mutableStateOf(false) }
+    var activePaymentInvoice by remember { mutableStateOf<SalesInvoiceEntity?>(null) }
+    var activeReturnInvoice by remember { mutableStateOf<SalesInvoiceWithOwner?>(null) }
+    var activePreviewInvoice by remember { mutableStateOf<SalesInvoiceWithOwner?>(null) }
+    var activeStatementCustomer by remember { mutableStateOf<PartnerEntity?>(null) }
+
+    // Convert Quotation alert dialog states
+    var activeConvertQuotation by remember { mutableStateOf<SalesQuotationEntity?>(null) }
+    var isConvertCredit by remember { mutableStateOf(false) }
+    var convertAccountId by remember { mutableStateOf<Long?>(null) }
+    var expandedConvertAcc by remember { mutableStateOf(false) }
+
+    // Search query states
+    var quoteSearchQuery by remember { mutableStateOf("") }
+    var invoiceSearchQuery by remember { mutableStateOf("") }
+    var returnSearchQuery by remember { mutableStateOf("") }
+    var customerSearchQuery by remember { mutableStateOf("") }
+
+    // Partner setup state variables
     var partnerArName by remember { mutableStateOf("") }
     var partnerType by remember { mutableStateOf("CUSTOMER") }
     var partnerPhone by remember { mutableStateOf("") }
     var partnerEmail by remember { mutableStateOf("") }
     var creditLimitValue by remember { mutableStateOf("10000.0") }
 
+    // Product setup state variables
     var productCode by remember { mutableStateOf("") }
     var productName by remember { mutableStateOf("") }
     var productPrice by remember { mutableStateOf("") }
     var productCost by remember { mutableStateOf("") }
     var minStockVal by remember { mutableStateOf("2.0") }
-
-    // Active sale form state variables
-    var selectedCustomerId by remember { mutableStateOf<Long?>(null) }
-    var selectedSaleProductId by remember { mutableStateOf<Long?>(null) }
-    var saleQtyInput by remember { mutableStateOf("1") }
-    var salePriceOverride by remember { mutableStateOf("") }
-    var saleFinancialAccountId by remember { mutableStateOf<Long?>(null) }
 
     // Active purchase form state variables
     var selectedSupplierId by remember { mutableStateOf<Long?>(null) }
@@ -1228,180 +1426,327 @@ fun InvoicingTab(
     var purchaseCostInput by remember { mutableStateOf("") }
     var purchasePaymentAccountId by remember { mutableStateOf<Long?>(null) }
 
+    // Format helpers
+    val dateFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
             ScrollableTabRow(selectedTabIndex = invoicingMode, edgePadding = 0.dp, modifier = Modifier.fillMaxWidth()) {
-                Tab(selected = invoicingMode == 0, onClick = { invoicingMode = 0 }, text = { Text("فاتورة مبيعات") })
-                Tab(selected = invoicingMode == 1, onClick = { invoicingMode = 1 }, text = { Text("فاتورة مشتريات") })
-                Tab(selected = invoicingMode == 2, onClick = { invoicingMode = 2 }, text = { Text("العملاء والموردين") })
-                Tab(selected = invoicingMode == 3, onClick = { invoicingMode = 3 }, text = { Text("إعداد المنتجات") })
+                Tab(selected = invoicingMode == 0, onClick = { invoicingMode = 0 }, text = { Text("لوحة المبيعات") })
+                Tab(selected = invoicingMode == 1, onClick = { invoicingMode = 1 }, text = { Text("عروض الأسعار") })
+                Tab(selected = invoicingMode == 2, onClick = { invoicingMode = 2 }, text = { Text("فواتير المبيعات") })
+                Tab(selected = invoicingMode == 3, onClick = { invoicingMode = 3 }, text = { Text("مرتجعات المبيعات") })
+                Tab(selected = invoicingMode == 4, onClick = { invoicingMode = 4 }, text = { Text("العملاء والحد الائتماني") })
+                Tab(selected = invoicingMode == 5, onClick = { invoicingMode = 5 }, text = { Text("فواتير المشتريات") })
+                Tab(selected = invoicingMode == 6, onClick = { invoicingMode = 6 }, text = { Text("إعداد المنتجات") })
             }
         }
 
         when (invoicingMode) {
             0 -> {
-                // Sales invoice form code block
                 item {
-                    Text("إصدار فاتورة مبيعات متكاملة القيود", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("ستخفف المخزون تلقائياً، وتثبت الإيراد والمدفوع والـ COGS مزدوجاً!", fontSize = 11.sp, color = Color.Gray)
-                }
-
-                item {
-                    // Customer select dropdown
-                    var expandedCustDropdown by remember { mutableStateOf(false) }
-                    val custLabel = customers.find { it.id == selectedCustomerId }?.name ?: "اختر العميل"
-
-                    Box {
-                        OutlinedButton(onClick = { expandedCustDropdown = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(custLabel)
-                        }
-                        DropdownMenu(expanded = expandedCustDropdown, onDismissRequest = { expandedCustDropdown = false }) {
-                            customers.forEach { cust ->
-                                DropdownMenuItem(
-                                    text = { Text(cust.name) },
-                                    onClick = {
-                                        selectedCustomerId = cust.id
-                                        expandedCustDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    // Product select
-                    var expandedProdDropdown by remember { mutableStateOf(false) }
-                    val pName = products.find { it.id == selectedSaleProductId }?.let { "${it.name} (المخزون المتوفر: ${it.stock})" } ?: "اختر المنتج"
-
-                    Box {
-                        OutlinedButton(onClick = { expandedProdDropdown = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(pName)
-                        }
-                        DropdownMenu(expanded = expandedProdDropdown, onDismissRequest = { expandedProdDropdown = false }) {
-                            products.forEach { p ->
-                                DropdownMenuItem(
-                                    text = { Text("${p.name} (${p.stock} متوفر)") },
-                                    onClick = {
-                                        selectedSaleProductId = p.id
-                                        salePriceOverride = p.price.toString()
-                                        expandedProdDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    OutlinedTextField(
-                        value = saleQtyInput,
-                        onValueChange = { saleQtyInput = it },
-                        label = { Text("الكمية المباعة") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                item {
-                    OutlinedTextField(
-                        value = salePriceOverride,
-                        onValueChange = { salePriceOverride = it },
-                        label = { Text("سعر البيع المعتمد للوحدة (﷼)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                item {
-                    val q = saleQtyInput.toDoubleOrNull() ?: 0.0
-                    val pr = salePriceOverride.toDoubleOrNull() ?: 0.0
-                    val subtotal = q * pr
-                    val vat = subtotal * 0.15
-                    val grandTotal = subtotal + vat
-
-                    if (subtotal > 0) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text("ملخص مالبة الفاتورة (ضريبة القيمة المضافة المبسطة):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("المجموع الفرعي (غير شامل الضريبة):", fontSize = 11.sp)
-                                    Text("${formatAmount(subtotal)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("ضريبة القيمة المضافة (15٪):", fontSize = 11.sp)
-                                    Text("${formatAmount(vat)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                                }
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("الإجمالي المستحق (شامل الضريبة):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Text("${formatAmount(grandTotal)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    // Financial Account cash/Bank Destination
-                    var expandedCashDropdown by remember { mutableStateOf(false) }
-                    val cashLabel = cashBankAccounts.find { it.id == saleFinancialAccountId }?.let { "${it.code} - ${it.nameAr}" } ?: "اختر حساب التحصيل (صندوق / بنك)"
-
-                    Box {
-                        OutlinedButton(onClick = { expandedCashDropdown = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text(cashLabel)
-                        }
-                        DropdownMenu(expanded = expandedCashDropdown, onDismissRequest = { expandedCashDropdown = false }) {
-                            cashBankAccounts.forEach { acc ->
-                                DropdownMenuItem(
-                                    text = { Text("${acc.code} ${acc.nameAr}") },
-                                    onClick = {
-                                        saleFinancialAccountId = acc.id
-                                        expandedCashDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Button(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            val cust = selectedCustomerId
-                            val prod = selectedSaleProductId
-                            val q = saleQtyInput.toDoubleOrNull() ?: 1.0
-                            val pr = salePriceOverride.toDoubleOrNull() ?: 0.0
-                            val acc = saleFinancialAccountId
-                            if (cust != null && prod != null && acc != null) {
-                                onRecordSale(cust, prod, q, pr, acc)
-                                // clear
-                                selectedCustomerId = null
-                                selectedSaleProductId = null
-                                saleQtyInput = "1"
-                                salePriceOverride = ""
-                                saleFinancialAccountId = null
-                            }
-                        },
-                        enabled = selectedCustomerId != null && selectedSaleProductId != null && saleFinancialAccountId != null
-                    ) {
-                        Text("حفظ وترحيل فاتورة المبيعات")
-                    }
+                    SalesDashboardView(invoices = salesInvoices, customers = customers, products = products)
                 }
             }
 
             1 -> {
-                // Purchase Invoice template Form
+                item {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("عروض أسعار العملاء (Quotations)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Button(onClick = { showCreateQuoter = true }) {
+                            Icon(Icons.Default.Add, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("عرض جديد")
+                        }
+                    }
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = quoteSearchQuery,
+                        onValueChange = { quoteSearchQuery = it },
+                        label = { Text("ابحث باسم العميل...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Search, null) }
+                    )
+                }
+
+                val filteredQuotes = quotations.filter {
+                    quoteSearchQuery.isBlank() || (partners.find { p -> p.id == it.quotation.customerId }?.name?.contains(quoteSearchQuery, ignoreCase = true) == true)
+                }
+
+                if (filteredQuotes.isEmpty()) {
+                    item { Text("لا توجد عروض أسعار مسجلة حالياً.", color = Color.Gray, modifier = Modifier.padding(16.dp)) }
+                } else {
+                    items(filteredQuotes) { q ->
+                        val custName = partners.find { it.id == q.quotation.customerId }?.name ?: "عميل مجهول"
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("عرض رقم: ${q.quotation.id}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Surface(
+                                        color = if (q.quotation.isConverted) Color(0xFFE6F4EA) else Color(0xFFE8F0FE),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            if (q.quotation.isConverted) "مرحل لفاتورة" else "مسودة سارية",
+                                            color = if (q.quotation.isConverted) Color(0xFF137333) else Color(0xFF1967D2),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text("العميل: $custName", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("صالح حتى: ${dateFmt.format(java.util.Date(q.quotation.expiryDate))}", fontSize = 10.sp, color = Color.Gray)
+                                    Text("الإجمالي المستحق: ${formatAmount(q.quotation.grandTotal)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+
+                                if (!q.quotation.isConverted) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = { activeConvertQuotation = q.quotation },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("تحويل لفاتورة مبيعات")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            2 -> {
+                item {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("فواتير المبيعات الإلكترونية", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Button(onClick = { showCreateInvoicer = true }) {
+                            Icon(Icons.Default.Add, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("فاتورة جديدة")
+                        }
+                    }
+                }
+
+                item {
+                    OutlinedTextField(
+                        value = invoiceSearchQuery,
+                        onValueChange = { invoiceSearchQuery = it },
+                        label = { Text("ابحث برقم الفاتورة أو اسم العميل...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Search, null) }
+                    )
+                }
+
+                val filteredInvoices = salesInvoices.filter {
+                    val cName = partners.find { p -> p.id == it.invoice.customerId }?.name ?: ""
+                    invoiceSearchQuery.isBlank() || it.invoice.invoiceNumber.contains(invoiceSearchQuery, ignoreCase = true) || cName.contains(invoiceSearchQuery, ignoreCase = true)
+                }
+
+                if (filteredInvoices.isEmpty()) {
+                    item { Text("لا توجد فواتير مبيعات مسجلة حالياً.", color = Color.Gray, modifier = Modifier.padding(16.dp)) }
+                } else {
+                    items(filteredInvoices) { inv ->
+                        val custName = partners.find { it.id == inv.invoice.customerId }?.name ?: "عميل مجهول"
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("فاتورة: ${inv.invoice.invoiceNumber}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Surface(
+                                        color = when (inv.invoice.status) {
+                                            "POSTED" -> Color(0xFFE6F4EA)
+                                            "REFUNDED" -> Color(0xFFFCE8E6)
+                                            else -> Color(0xFFFEF7E0)
+                                        },
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            when (inv.invoice.status) {
+                                                "POSTED" -> "معتمدة ومرحلة"
+                                                "REFUNDED" -> "مرتجعة كلياً/جزئياً"
+                                                else -> "مسودة خطة"
+                                            },
+                                            color = when (inv.invoice.status) {
+                                                "POSTED" -> Color(0xFF137333)
+                                                "REFUNDED" -> Color(0xFFC5221F)
+                                                else -> Color(0xFFB06000)
+                                            },
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text("العميل: $custName | ${if (inv.invoice.isCredit) "آجل / ائتمان" else "نقدي مباشر"}", fontSize = 11.sp)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("التاريخ: ${dateFmt.format(java.util.Date(inv.invoice.date))}", fontSize = 10.sp, color = Color.Gray)
+                                    Text("الإجمالي: ${formatAmount(inv.invoice.grandTotal)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+
+                                if (inv.invoice.status == "DRAFT") {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = { onConfirmInvoice(inv.invoice.id, null) },
+                                            modifier = Modifier.weight(1.2f)
+                                        ) {
+                                            Text("اعتماد وترحيل القيود")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onDeleteInvoice(inv.invoice.id) },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                                            modifier = Modifier.weight(0.8f)
+                                        ) {
+                                            Text("حذف")
+                                        }
+                                    }
+                                } else {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedButton(
+                                            onClick = { activePreviewInvoice = inv },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("معاينة السند / طباعة")
+                                        }
+
+                                        val remaining = inv.invoice.grandTotal - inv.invoice.paidAmount
+                                        if (remaining > 0) {
+                                            Button(
+                                                onClick = { activePaymentInvoice = inv.invoice },
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("سداد دفعة آجل")
+                                            }
+                                        }
+
+                                        if (inv.invoice.status == "POSTED") {
+                                            OutlinedButton(
+                                                onClick = { activeReturnInvoice = inv },
+                                                modifier = Modifier.weight(0.8f)
+                                            ) {
+                                                Text("ارتجاع")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            3 -> {
+                item {
+                    Text("مرتجعات مبيعات البنود المسجلة", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+
+                if (salesReturns.isEmpty()) {
+                    item { Text("لا توجد فواتير مرتجعات مسجلة حالياً.", color = Color.Gray, modifier = Modifier.padding(16.dp)) }
+                } else {
+                    items(salesReturns) { ret ->
+                        val origInv = salesInvoices.find { it.invoice.id == ret.returnEntity.invoiceId }?.invoice?.invoiceNumber ?: "مجهول"
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("إشعار دائن مرتجع رقم: ${ret.returnEntity.returnNumber}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("إشارة للفاتورة الأصلية رقم: $origInv", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("السبب والبيان: ${ret.returnEntity.reason}", fontSize = 11.sp, color = Color.Gray)
+                                    Text("قيمة الرد بالصافي: ${formatAmount(ret.returnEntity.refundAmount)} ﷼", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            4 -> {
+                item {
+                    Text("إدارة الائتمان وحسابات كشوفات العملاء", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("إضافة عميل جديد وضبط حدود الائتمان المالي", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            OutlinedTextField(value = partnerArName, onValueChange = { partnerArName = it }, label = { Text("الاسم الكامل للعميل") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(value = partnerPhone, onValueChange = { partnerPhone = it }, label = { Text("رقم الهاتف") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(value = partnerEmail, onValueChange = { partnerEmail = it }, label = { Text("البريد الإلكتروني") }, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(value = creditLimitValue, onValueChange = { creditLimitValue = it }, label = { Text("الحد الائتماني المعتمد (﷼)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+
+                            Button(
+                                onClick = {
+                                    if (partnerArName.isNotBlank()) {
+                                        onAddPartner(partnerArName, "CUSTOMER", partnerPhone, partnerEmail, creditLimitValue.toDoubleOrNull() ?: 10000.0)
+                                        // Clear
+                                        partnerArName = ""
+                                        partnerPhone = ""
+                                        partnerEmail = ""
+                                        creditLimitValue = "10000.0"
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("إدخال العميل للدفاتر")
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("سجل العملاء التجاري والحدود الائتمانية الواقفة :", fontWeight = FontWeight.Bold)
+                }
+
+                if (customers.isEmpty()) {
+                    item { Text("لا يوجد عملاء مسجلين حالياً بالدليل.", color = Color.Gray) }
+                } else {
+                    items(customers) { p ->
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column {
+                                        Text(p.name, fontWeight = FontWeight.Bold)
+                                        Text("هاتف: ${p.phone} | بريد: ${p.email}", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                    Button(onClick = { activeStatementCustomer = p }) {
+                                        Text("كشف الحساب")
+                                    }
+                                }
+
+                                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+
+                                // Limit validation progress bar
+                                Column {
+                                    val pct = if (p.creditLimit > 0) (p.balance / p.creditLimit).toFloat() else 0f
+                                    val colorPct = when {
+                                        pct >= 0.85f -> Color.Red
+                                        pct >= 0.5f -> Color(0xFFF9AB00)
+                                        else -> Color(0xFF137333)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("المديونية الحالية: ${formatAmount(p.balance)} ﷼", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorPct)
+                                        Text("الحد الائتماني: ${formatAmount(p.creditLimit)} ﷼", fontSize = 11.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    LinearProgressIndicator(
+                                        progress = { pct.coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                        color = colorPct,
+                                        trackColor = Color.LightGray.copy(alpha = 0.2f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            5 -> {
+                // --- Supplier purchase invoices (RETAINED) ---
                 item {
                     Text("توريد شراء وحساب تكلفة المتوسط المرجح", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("ستقوم تلقائياً بزيادة المخزون وحساب متوسط التكلفة وحفظ القيد المزدوج!", fontSize = 11.sp, color = Color.Gray)
@@ -1553,82 +1898,8 @@ fun InvoicingTab(
                 }
             }
 
-            2 -> {
-                // Partner Customer/Supplier listing and Add Form
-                item {
-                    Text("إدارة جهات الاتصال التجارية", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("إضافة جهة اتصال تجارية", fontWeight = FontWeight.Bold, color = PrimaryTeal)
-                            OutlinedTextField(value = partnerArName, onValueChange = { partnerArName = it }, label = { Text("الاسم الكامل بالبلد") }, modifier = Modifier.fillMaxWidth())
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    RadioButton(selected = partnerType == "CUSTOMER", onClick = { partnerType = "CUSTOMER" })
-                                    Text("عميل")
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    RadioButton(selected = partnerType == "SUPPLIER", onClick = { partnerType = "SUPPLIER" })
-                                    Text("مورد")
-                                }
-                            }
-                            OutlinedTextField(value = partnerPhone, onValueChange = { partnerPhone = it }, label = { Text("رقم الهاتف") }, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(value = partnerEmail, onValueChange = { partnerEmail = it }, label = { Text("البريد الإلكتروني") }, modifier = Modifier.fillMaxWidth())
-
-                            Button(
-                                onClick = {
-                                    if (partnerArName.isNotBlank()) {
-                                        onAddPartner(partnerArName, partnerType, partnerPhone, partnerEmail, creditLimitValue.toDoubleOrNull() ?: 10000.0)
-                                        // Clear
-                                        partnerArName = ""
-                                        partnerPhone = ""
-                                        partnerEmail = ""
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("إدخال جهة اتصال")
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Text("جهات الاتصال التجارية المسجلة :", fontWeight = FontWeight.Bold)
-                }
-
-                if (partners.isEmpty()) {
-                    item { Text("لا يوجد شركاء تجاريين حالياً.", color = Color.Gray) }
-                } else {
-                    items(partners) { p ->
-                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                            Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    Text(p.name, fontWeight = FontWeight.Bold)
-                                    Text("هاتف: ${p.phone} | بريد: ${p.email}", fontSize = 11.sp, color = Color.Gray)
-                                }
-                                Surface(
-                                    color = if (p.type == "CUSTOMER") Color(0xFFE8F0FE) else Color(0xFFFEF7E0),
-                                    shape = RoundedCornerShape(4.dp)
-                                ) {
-                                    Text(
-                                        if (p.type == "CUSTOMER") "عميل" else "مورد",
-                                        color = if (p.type == "CUSTOMER") Color(0xFF1967D2) else Color(0xFFB06000),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            3 -> {
-                // Products add and configuration template Block
+            6 -> {
+                // --- Products Catalog (RETAINED) ---
                 item {
                     Text("إدارة وتعريف المنتجات والخدمات السلعية", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
@@ -1636,7 +1907,7 @@ fun InvoicingTab(
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("بطاقة مادة / منتج جديد", fontWeight = FontWeight.Bold, color = PrimaryTeal)
+                            Text("بطاقة مادة / منتج جديد", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             OutlinedTextField(value = productCode, onValueChange = { productCode = it }, label = { Text("رمز المادة (الكود، مثال: P001)") }, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(value = productName, onValueChange = { productName = it }, label = { Text("اسم المنتج") }, modifier = Modifier.fillMaxWidth())
                             OutlinedTextField(value = productPrice, onValueChange = { productPrice = it }, label = { Text("سعر البيع الافتراضي للمستهلك (﷼)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
@@ -1694,7 +1965,169 @@ fun InvoicingTab(
             }
         }
     }
+
+    // Modal dialog overlays
+    if (showCreateQuoter) {
+        CreateQuotationDialog(
+            customers = customers,
+            products = products,
+            onDismiss = { showCreateQuoter = false },
+            onSubmit = onCreateQuotation
+        )
+    }
+
+    if (showCreateInvoicer) {
+        CreateSalesInvoiceDialog(
+            customers = customers,
+            products = products,
+            cashBankAccounts = cashBankAccounts,
+            onDismiss = { showCreateInvoicer = false },
+            onSubmit = onCreateInvoiceDraft
+        )
+    }
+
+    activePaymentInvoice?.let { inv ->
+        InvoicePaymentDialog(
+            invoice = inv,
+            cashBankAccounts = cashBankAccounts,
+            onDismiss = { activePaymentInvoice = null },
+            onSubmit = onRecordInvoicePayment
+        )
+    }
+
+    activeReturnInvoice?.let { inv ->
+        SalesReturnConfirmDialog(
+            invoice = inv,
+            products = products,
+            onDismiss = { activeReturnInvoice = null },
+            onSubmit = onRecordSalesReturn
+        )
+    }
+
+    activePreviewInvoice?.let { inv ->
+        val cust = customers.find { it.id == inv.invoice.customerId }
+        if (cust != null) {
+            InvoicePdfPreviewDialog(
+                invoiceWithOwner = inv,
+                customer = cust,
+                products = products,
+                onDismiss = { activePreviewInvoice = null }
+            )
+        }
+    }
+
+    activeStatementCustomer?.let { cust ->
+        CustomerStatementDialog(
+            customer = cust,
+            invoices = salesInvoices,
+            salesReturns = salesReturns,
+            onDismiss = { activeStatementCustomer = null }
+        )
+    }
+
+    // Convert quotation custom configuration alert
+    activeConvertQuotation?.let { quote ->
+        val custName = customers.find { it.id == quote.customerId }?.name ?: "العميل"
+        Dialog(onDismissRequest = { activeConvertQuotation = null }) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("إعدادات تحويل عرض السعر إلى فاتورة مبيعات", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("سيتم تحويل العرض رقم #${quote.id} للعميل $custName إلى فاتورة مبيعات رسمية ومرحلة مالياً.", fontSize = 11.sp, color = Color.Gray)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = isConvertCredit, onCheckedChange = { isConvertCredit = it })
+                        Spacer(Modifier.width(8.dp))
+                        Text("تحويل كفاتورة آجلة (ائتمانية)", fontSize = 13.sp)
+                    }
+
+                    if (!isConvertCredit) {
+                        Box {
+                            val label = cashBankAccounts.find { it.id == convertAccountId }?.let { "${it.code} - ${it.nameAr}" } ?: "اختر حساب تحصيل النقد المباشر"
+                            OutlinedButton(onClick = { expandedConvertAcc = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(label)
+                            }
+                            DropdownMenu(expanded = expandedConvertAcc, onDismissRequest = { expandedConvertAcc = false }) {
+                                cashBankAccounts.forEach { a ->
+                                    DropdownMenuItem(text = { Text("${a.code} - ${a.nameAr}") }, onClick = {
+                                        convertAccountId = a.id
+                                        expandedConvertAcc = false
+                                    })
+                                }
+                            }
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { activeConvertQuotation = null }, modifier = Modifier.weight(1f)) {
+                            Text("إلغاء")
+                        }
+                        Button(
+                            onClick = {
+                                if (isConvertCredit || convertAccountId != null) {
+                                    onConvertQuotation(quote.id, convertAccountId, isConvertCredit)
+                                    activeConvertQuotation = null
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = isConvertCredit || convertAccountId != null
+                        ) {
+                            Text("تأكيد التحويل")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}          // clean
+                                        productCode = ""
+                                        productName = ""
+                                        productPrice = ""
+                                        productCost = ""
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("إضافة لكتالوج المواد")
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text("الأصناف والمواد المتاحة :", fontWeight = FontWeight.Bold)
+                }
+
+                if (products.isEmpty()) {
+                    item { Text("لا توجد أصناف مسجلة بالدليل حالياً.", color = Color.Gray) }
+                } else {
+                    items(products) { p ->
+                        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column {
+                                    Text("${p.code} - ${p.name}", fontWeight = FontWeight.Bold)
+                                    Text("سعر البيع: ${p.price} | تكلفة الشراء: ${p.cost}", fontSize = 11.sp, color = Color.Gray)
+                                }
+                                Surface(
+                                    color = Color(0xFFE6F4EA),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        "مخزون: ${p.stock}",
+                                        color = Color(0xFF137333),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
+*/
 
 // ----------------------------------------------------
 // TAB 6: INVENTORY & MOVEMENTS (المخازن والتسوية الجردية)
