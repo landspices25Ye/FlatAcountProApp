@@ -19,6 +19,7 @@ class AccountingRepository(private val db: AppDatabase) {
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
     val allEntries: Flow<List<JournalEntryWithOwner>> = journalDao.getAllEntriesWithLines()
     val allProducts: Flow<List<ProductEntity>> = productDao.getAllProducts()
+    val allWarehouses: Flow<List<WarehouseEntity>> = productDao.getAllWarehouses()
     val allPartners: Flow<List<PartnerEntity>> = partnerDao.getAllPartners()
     val allEmployees: Flow<List<EmployeeEntity>> = employeeDao.getAllEmployees()
     val allPayrolls: Flow<List<PayrollRecordEntity>> = employeeDao.getAllPayrollRecords()
@@ -372,8 +373,67 @@ class AccountingRepository(private val db: AppDatabase) {
     }
 
     // Records manual adjustment, updates stock and creates a journal entry
+    // -- Warehouse Management --
+    suspend fun addWarehouse(warehouse: WarehouseEntity): Long {
+        return productDao.insertWarehouse(warehouse)
+    }
+
+    suspend fun updateWarehouse(warehouse: WarehouseEntity) {
+        productDao.updateWarehouse(warehouse)
+    }
+
+    suspend fun deleteWarehouse(warehouse: WarehouseEntity) {
+        productDao.deleteWarehouse(warehouse)
+    }
+
+    suspend fun setDefaultWarehouse(warehouseId: Long) {
+        productDao.clearDefaultWarehouses()
+        val warehouse = productDao.getWarehouseById(warehouseId)
+        if (warehouse != null) {
+            productDao.updateWarehouse(warehouse.copy(isDefault = true))
+        }
+    }
+
+    suspend fun transferStock(
+        productId: Long,
+        fromWarehouseId: Long,
+        toWarehouseId: Long,
+        quantity: Double,
+        description: String,
+        timestamp: Long
+    ) {
+        val product = productDao.getProductById(productId) ?: return
+        if (quantity <= 0) return
+
+        // Out movement from source
+        productDao.insertStockMovement(
+            StockMovementEntity(
+                productId = productId,
+                warehouseId = fromWarehouseId,
+                type = "TRANSFER_OUT",
+                quantity = -quantity,
+                unitCost = product.cost,
+                date = timestamp,
+                description = description
+            )
+        )
+        // In movement to destination
+        productDao.insertStockMovement(
+            StockMovementEntity(
+                productId = productId,
+                warehouseId = toWarehouseId,
+                type = "TRANSFER_IN",
+                quantity = quantity,
+                unitCost = product.cost,
+                date = timestamp,
+                description = description
+            )
+        )
+    }
+
     suspend fun recordStockAdjustment(
         productId: Long,
+        warehouseId: Long?,
         qtyChange: Double, // can be positive or negative
         description: String,
         timestamp: Long
@@ -390,8 +450,9 @@ class AccountingRepository(private val db: AppDatabase) {
         productDao.insertStockMovement(
             StockMovementEntity(
                 productId = productId,
+                warehouseId = warehouseId,
                 type = mvType,
-                quantity = Math.abs(qtyChange),
+                quantity = qtyChange,
                 unitCost = product.cost,
                 date = timestamp,
                 description = description

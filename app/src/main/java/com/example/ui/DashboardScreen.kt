@@ -58,6 +58,7 @@ fun DashboardScreen(
     val employeeList by viewModel.employees.collectAsStateWithLifecycle()
     val payrollList by viewModel.payrolls.collectAsStateWithLifecycle()
     val stockMvList by viewModel.stockMovements.collectAsStateWithLifecycle()
+    val warehouseList by viewModel.warehouses.collectAsStateWithLifecycle()
     val quotationList by viewModel.quotations.collectAsStateWithLifecycle()
     val salesInvoiceList by viewModel.salesInvoices.collectAsStateWithLifecycle()
     val salesReturnList by viewModel.salesReturns.collectAsStateWithLifecycle()
@@ -296,11 +297,21 @@ fun DashboardScreen(
                         purchaseInvoices = purchaseInvoiceList,
                         purchaseReturns = purchaseReturnList
                     )
-                    ActiveTab.INVENTORY -> InventoryTab(
+                    ActiveTab.INVENTORY -> AdvancedInventoryTab(
                         products = productList,
                         movements = stockMvList,
-                        onAdjustStock = { prodId, qty, desc ->
-                            viewModel.adjustStock(prodId, qty, desc)
+                        warehouses = warehouseList,
+                        onAdjustStock = { prodId, whId, qty, desc ->
+                            viewModel.adjustStock(prodId, whId, qty, desc)
+                        },
+                        onAddWarehouse = { n, c, l, m, d ->
+                            viewModel.addWarehouse(n, c, l, m, d)
+                        },
+                        onUpdateWarehouse = { wh ->
+                            viewModel.updateWarehouse(wh)
+                        },
+                        onTransferStock = { pId, fWh, tWh, q, d ->
+                            viewModel.transferStock(pId, fWh, tWh, q, d)
                         }
                     )
                     ActiveTab.HR_PAYROLL -> HrPayrollTab(
@@ -2179,196 +2190,7 @@ fun OldInvoicingTabHiddenBody() {
 // ----------------------------------------------------
 // TAB 6: INVENTORY & MOVEMENTS (المخازن والتسوية الجردية)
 // ----------------------------------------------------
-@Composable
-fun InventoryTab(
-    products: List<ProductEntity>,
-    movements: List<StockMovementEntity>,
-    onAdjustStock: (Long, Double, String) -> Unit
-) {
-    var invViewMode by remember { mutableStateOf(0) } // 0: Stock levels, 1: Inventory Adjustments, 2: Stock movements history
 
-    // adjustment form variables
-    var selectedAdjustProductId by remember { mutableStateOf<Long?>(null) }
-    var adjustQtyInput by remember { mutableStateOf("") }
-    var adjustDescInput by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        TabRow(selectedTabIndex = invViewMode, modifier = Modifier.fillMaxWidth()) {
-            Tab(selected = invViewMode == 0, onClick = { invViewMode = 0 }, text = { Text("المخزون الفعلي المتاح") })
-            Tab(selected = invViewMode == 1, onClick = { invViewMode = 1 }, text = { Text("تسوية جردية") })
-            Tab(selected = invViewMode == 2, onClick = { invViewMode = 2 }, text = { Text("سجل حركات المخزن") })
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when (invViewMode) {
-                0 -> {
-                Text("الأرصدة الحالية للمخازن الفردية والمجمعة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (products.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("لا يوجد منتجات معرفة. يرجى إضافتها من الفواتير -> إعداد المنتجات.", color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(products) { p ->
-                            val lowStock = p.stock <= p.minStock
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text("${p.code} - ${p.name}", fontWeight = FontWeight.Bold)
-                                        Text("متوسط التكلفة: ${formatAmount(p.cost)} ﷼ | القيمة الكلية: ${formatAmount(p.stock * p.cost)} ﷼", fontSize = 11.sp, color = Color.Gray)
-                                    }
-
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            "${p.stock} وحدة",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = if (lowStock) RoseCrimson else TealAccent
-                                        )
-                                        if (lowStock) {
-                                            Text("مخزون منخفض!", fontSize = 10.sp, color = RoseCrimson, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            1 -> {
-                // Adjustment Form manual triggers
-                Text("تسجيل تسوية جردية مخزنية", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text("ستقوم تلقائياً بتوليد قيد تساو ضائعات/فروقات للمخزون!", fontSize = 11.sp, color = Color.Gray)
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                var expandedProdAdjustDdown by remember { mutableStateOf(false) }
-                val prodLabel = products.find { it.id == selectedAdjustProductId }?.name ?: "اختر المنتج للتسوية"
-
-                Box {
-                    OutlinedButton(onClick = { expandedProdAdjustDdown = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text(prodLabel)
-                    }
-                    DropdownMenu(expanded = expandedProdAdjustDdown, onDismissRequest = { expandedProdAdjustDdown = false }) {
-                        products.forEach { p ->
-                            DropdownMenuItem(
-                                text = { Text(p.name) },
-                                onClick = {
-                                    selectedAdjustProductId = p.id
-                                    expandedProdAdjustDdown = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = adjustQtyInput,
-                    onValueChange = { adjustQtyInput = it },
-                    label = { Text("قيمة التغيير (مثال: 5 للزيادة، -3 للعجز)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = adjustDescInput,
-                    onValueChange = { adjustDescInput = it },
-                    label = { Text("سبب التسوية (مثال: تلف جزء من الشحنة أو فروق جرد)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = {
-                        val pId = selectedAdjustProductId
-                        val qM = adjustQtyInput.toDoubleOrNull() ?: 0.0
-                        if (pId != null && qM != 0.0) {
-                            onAdjustStock(pId, qM, adjustDescInput)
-                            // clear
-                            selectedAdjustProductId = null
-                            adjustQtyInput = ""
-                            adjustDescInput = ""
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = selectedAdjustProductId != null && adjustQtyInput.isNotEmpty()
-                ) {
-                    Text("ترحيل التسوية المخزنية ومزدوجة القيد")
-                }
-            }
-
-            2 -> {
-                Text("سجل حركات الوارد والصادر التفصيلي", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (movements.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("لا توجد حركات مخزنية مسجلة حتى الآن.", color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(movements) { mv ->
-                            val productLabel = products.find { it.id == mv.productId }?.name ?: "Unknown"
-                            val isIncoming = mv.type == "PURCHASE" || mv.type == "ADJUSTMENT_IN"
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(productLabel, fontWeight = FontWeight.Bold)
-                                        Text("${mv.type} | التكلفة بالوحدة: ${formatAmount(mv.unitCost)} ﷼", fontSize = 11.sp, color = Color.Gray)
-                                        Text("السبب: ${mv.description}", fontSize = 11.sp, color = Color.DarkGray)
-                                        Text(formatDate(mv.date), fontSize = 10.sp, color = Color.Gray)
-                                    }
-
-                                    Text(
-                                        "${if (isIncoming) "+" else "-"}${mv.quantity} %s".format("وحدة"),
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isIncoming) TealAccent else RoseCrimson,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    }
-}
 
 // ----------------------------------------------------
 // TAB 7: HR & PAYROLL (الموارد البشرية والرواتب وصرف النقد المالي)

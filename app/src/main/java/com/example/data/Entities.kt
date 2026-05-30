@@ -59,6 +59,20 @@ data class JournalEntryLineEntity(
 )
 
 @Entity(
+    tableName = "warehouses",
+    indices = [Index(value = ["code"], unique = true)]
+)
+data class WarehouseEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val code: String,
+    val location: String,
+    val manager: String = "",
+    val isDefault: Boolean = false,
+    val isActive: Boolean = true
+)
+
+@Entity(
     tableName = "products",
     indices = [Index(value = ["code"], unique = true)]
 )
@@ -69,6 +83,7 @@ data class ProductEntity(
     val price: Double,
     val cost: Double,
     val stock: Double = 0.0,
+    val reservedStock: Double = 0.0, // For ATP calculation
     val minStock: Double = 2.0,
     val type: String = "PRODUCT" // PRODUCT, SERVICE
 )
@@ -81,17 +96,27 @@ data class ProductEntity(
             parentColumns = ["id"],
             childColumns = ["productId"],
             onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = WarehouseEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["warehouseId"],
+            onDelete = ForeignKey.SET_NULL
         )
     ],
-    indices = [Index("productId")]
+    indices = [Index("productId"), Index("warehouseId")]
 )
 data class StockMovementEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val productId: Long,
-    val type: String, // PURCHASE, SALE, ADJUSTMENT_IN, ADJUSTMENT_OUT
-    val quantity: Double,
+    val warehouseId: Long? = null,
+    val type: String, // PURCHASE, SALE, TRANSFER_IN, TRANSFER_OUT, ADJUSTMENT_IN, ADJUSTMENT_OUT
+    val quantity: Double, // The change amount (can be positive or negative depending on type)
     val unitCost: Double,
+    val qtyBefore: Double = 0.0,
+    val qtyAfter: Double = 0.0,
     val date: Long,
+    val reference: String = "",
     val description: String
 )
 

@@ -112,6 +112,27 @@ interface ProductDao {
 
     @Query("SELECT * FROM stock_movements ORDER BY date DESC")
     fun getAllMovements(): Flow<List<StockMovementEntity>>
+
+    @Query("SELECT * FROM warehouses ORDER BY name ASC")
+    fun getAllWarehouses(): Flow<List<WarehouseEntity>>
+
+    @Query("SELECT * FROM warehouses WHERE id = :id")
+    suspend fun getWarehouseById(id: Long): WarehouseEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertWarehouse(warehouse: WarehouseEntity): Long
+
+    @Update
+    suspend fun updateWarehouse(warehouse: WarehouseEntity)
+
+    @Delete
+    suspend fun deleteWarehouse(warehouse: WarehouseEntity)
+
+    @Query("UPDATE warehouses SET isDefault = 0")
+    suspend fun clearDefaultWarehouses()
+
+    @Query("SELECT SUM(quantity) FROM stock_movements WHERE productId = :productId AND warehouseId = :warehouseId")
+    suspend fun getStockInWarehouse(productId: Long, warehouseId: Long): Double?
 }
 
 @Dao

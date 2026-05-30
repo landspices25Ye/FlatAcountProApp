@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
         JournalEntryEntity::class,
         JournalEntryLineEntity::class,
         ProductEntity::class,
+        WarehouseEntity::class,
         StockMovementEntity::class,
         PartnerEntity::class,
         EmployeeEntity::class,
@@ -34,7 +35,7 @@ import kotlinx.coroutines.withContext
         PurchaseReturnEntity::class,
         PurchaseReturnLineEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -278,6 +279,36 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add column `reservedStock` to `products`
+                db.execSQL("ALTER TABLE `products` ADD COLUMN `reservedStock` REAL NOT NULL DEFAULT 0.0")
+
+                // 2. Create `warehouses` table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `warehouses` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
+                        `name` TEXT NOT NULL, 
+                        `code` TEXT NOT NULL, 
+                        `location` TEXT NOT NULL, 
+                        `manager` TEXT NOT NULL DEFAULT '', 
+                        `isDefault` INTEGER NOT NULL DEFAULT 0, 
+                        `isActive` INTEGER NOT NULL DEFAULT 1
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_warehouses_code` ON `warehouses` (`code`)")
+
+                // 3. Add columns to `stock_movements`
+                db.execSQL("ALTER TABLE `stock_movements` ADD COLUMN `warehouseId` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `stock_movements` ADD COLUMN `qtyBefore` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `stock_movements` ADD COLUMN `qtyAfter` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `stock_movements` ADD COLUMN `reference` TEXT NOT NULL DEFAULT ''")
+
+                // Indices for stock_movements
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_movements_warehouseId` ON `stock_movements` (`warehouseId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -285,7 +316,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "accounting_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration(true)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .build()

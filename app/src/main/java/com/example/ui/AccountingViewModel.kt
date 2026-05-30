@@ -35,6 +35,20 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val warehouses: StateFlow<List<WarehouseEntity>> = repository.allWarehouses
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading warehouses", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val stockMovements: StateFlow<List<StockMovementEntity>> = repository.allMovements
+        .catch { t ->
+            android.util.Log.e("AccountingViewModel", "Error loading stock movements", t)
+            emit(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val partners: StateFlow<List<PartnerEntity>> = repository.allPartners
         .catch { t ->
             android.util.Log.e("AccountingViewModel", "Error loading partners", t)
@@ -56,12 +70,7 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val stockMovements: StateFlow<List<StockMovementEntity>> = repository.allMovements
-        .catch { t ->
-            android.util.Log.e("AccountingViewModel", "Error loading movements", t)
-            emit(emptyList())
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
 
     val quotations: StateFlow<List<SalesQuotationWithOwner>> = repository.allQuotations
         .catch { t ->
@@ -334,13 +343,57 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // --- Inventory adjustments ---
-    fun adjustStock(productId: Long, qtyChange: Double, description: String) {
+    fun adjustStock(productId: Long, warehouseId: Long?, qtyChange: Double, description: String) {
         viewModelScope.launch {
             try {
-                repository.recordStockAdjustment(productId, qtyChange, description, System.currentTimeMillis())
+                repository.recordStockAdjustment(productId, warehouseId, qtyChange, description, System.currentTimeMillis())
             } catch (t: Throwable) {
                 handleException(t)
             }
+        }
+    }
+
+    // -- Warehouse Management --
+    fun addWarehouse(name: String, code: String, location: String, manager: String, isDefault: Boolean) {
+        viewModelScope.launch {
+            try {
+                val wh = WarehouseEntity(name = name, code = code, location = location, manager = manager, isDefault = isDefault)
+                val id = repository.addWarehouse(wh)
+                if (isDefault) {
+                    repository.setDefaultWarehouse(id)
+                }
+            } catch (t: Throwable) { handleException(t) }
+        }
+    }
+
+    fun updateWarehouse(warehouse: WarehouseEntity) {
+        viewModelScope.launch {
+            try {
+                repository.updateWarehouse(warehouse)
+                if (warehouse.isDefault) {
+                    repository.setDefaultWarehouse(warehouse.id)
+                }
+            } catch (t: Throwable) { handleException(t) }
+        }
+    }
+
+    fun deleteWarehouse(warehouse: WarehouseEntity) {
+        viewModelScope.launch {
+            try { repository.deleteWarehouse(warehouse) } catch (t: Throwable) { handleException(t) }
+        }
+    }
+
+    fun setDefaultWarehouse(warehouseId: Long) {
+        viewModelScope.launch {
+            try { repository.setDefaultWarehouse(warehouseId) } catch (t: Throwable) { handleException(t) }
+        }
+    }
+
+    fun transferStock(productId: Long, fromWarehouseId: Long, toWarehouseId: Long, quantity: Double, description: String) {
+        viewModelScope.launch {
+            try {
+                repository.transferStock(productId, fromWarehouseId, toWarehouseId, quantity, description, System.currentTimeMillis())
+            } catch (t: Throwable) { handleException(t) }
         }
     }
 
