@@ -22,6 +22,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.core.utils.FormatUtils
@@ -39,8 +42,8 @@ fun PurchasesTab(
     purchaseReturns: List<PurchaseReturnWithOwner>,
     modifier: Modifier = Modifier
 ) {
-    var subTab by remember { mutableStateOf(0) } // 0: Suppliers, 1: Orders, 2: Invoices, 3: Returns
-    val subTabTitles = listOf("الموردين والحسابات", "أوامر الشراء", "فواتير المشتريات", "مرتجع المشتريات")
+    var subTab by remember { mutableStateOf(0) } // 0: Suppliers, 1: Orders, 2: Invoices, 3: Returns, 4: Analytics
+    val subTabTitles = listOf("الموردين والحسابات", "أوامر الشراء", "فواتير المشتريات", "مرتجع المشتريات", "تحليلات المشتريات")
 
     Column(
         modifier = modifier
@@ -53,10 +56,11 @@ fun PurchasesTab(
         Spacer(modifier = Modifier.height(16.dp))
 
         // --- Tab Selection Navigation ---
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = subTab,
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             contentColor = MaterialTheme.colorScheme.primary,
+            edgePadding = 0.dp,
             modifier = Modifier.clip(RoundedCornerShape(8.dp))
         ) {
             subTabTitles.forEachIndexed { index, title ->
@@ -71,11 +75,14 @@ fun PurchasesTab(
         Spacer(modifier = Modifier.height(16.dp))
 
         // --- Render Sub-tab Content ---
-        when (subTab) {
-            0 -> SuppliersSubTab(viewModel, partners, accounts)
-            1 -> PurchaseOrdersSubTab(viewModel, partners, products)
-            2 -> PurchaseInvoicesSubTab(viewModel, partners, products, accounts, purchaseInvoices)
-            3 -> PurchaseReturnsSubTab(viewModel, purchaseInvoices, products)
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (subTab) {
+                0 -> SuppliersSubTab(viewModel, partners, accounts)
+                1 -> PurchaseOrdersSubTab(viewModel, partners, products)
+                2 -> PurchaseInvoicesSubTab(viewModel, partners, products, accounts, purchaseInvoices)
+                3 -> PurchaseReturnsSubTab(viewModel, purchaseInvoices, products)
+                4 -> PurchaseAnalyticsSubTab(purchaseInvoices, partners)
+            }
         }
     }
 }
@@ -610,117 +617,136 @@ fun CreateOrderDialog(
     onDismiss: () -> Unit,
     onSave: (supplierId: Long, items: List<Pair<Long, Pair<Double, Double>>>) -> Unit
 ) {
-    var selectedSupplierId by remember { mutableStateOf(suppliers.firstOrNull()?.id ?: 0L) }
-    val lineItems = remember { mutableStateListOf<Triple<Long, Double, Double>>() } // productId, qty, unitPrice
+    var selectedSupplierId by remember { mutableStateOf<Long?>(null) }
+    val lines = remember { mutableStateListOf<Triple<Long, Double, Double>>() } // productId, qty, unitPrice
 
-    var activeProductId by remember { mutableStateOf(products.firstOrNull()?.id ?: 0L) }
-    var inputQty by remember { mutableStateOf("10") }
-    var inputPrice by remember { mutableStateOf("100") }
+    // line inputs
+    var selectedLineProdId by remember { mutableStateOf<Long?>(null) }
+    var lineQty by remember { mutableStateOf("1") }
+    var linePrice by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("طلب تعميد أمر شراء", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("المورد لطلب الشراء:", style = MaterialTheme.typography.bodySmall)
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    suppliers.forEach { sup ->
-                        FilterChip(
-                            selected = selectedSupplierId == sup.id,
-                            onClick = { selectedSupplierId = sup.id },
-                            label = { Text(sup.name) },
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
+    var expandedSup by remember { mutableStateOf(false) }
+    var expandedProd by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
+            Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Text("إصدار أمر شراء (Purchase Order) جديد", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+
+                Box {
+                    val label = suppliers.find { it.id == selectedSupplierId }?.name ?: "اختر المورد لطلب الشراء"
+                    OutlinedButton(onClick = { expandedSup = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label)
+                    }
+                    DropdownMenu(expanded = expandedSup, onDismissRequest = { expandedSup = false }) {
+                        suppliers.forEach { s ->
+                            DropdownMenuItem(text = { Text(s.name) }, onClick = { selectedSupplierId = s.id; expandedSup = false })
+                        }
                     }
                 }
 
                 HorizontalDivider()
+                Text("الأصناف المطلوبة للشراء", fontWeight = FontWeight.Bold, fontSize = 12.sp)
 
-                Text("إضافة سطر منتج / صنف:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                Box {
+                    val label = products.find { it.id == selectedLineProdId }?.let { "${it.name} [متوفر: ${it.stock}]" } ?: "اختر صنف أو منتج"
+                    OutlinedButton(onClick = { expandedProd = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label)
+                    }
+                    DropdownMenu(expanded = expandedProd, onDismissRequest = { expandedProd = false }) {
+                        products.forEach { p ->
+                            DropdownMenuItem(text = { Text("${p.name} [متوفر: ${p.stock}] - التكلفة المقدرة ${FormatUtils.formatCurrency(p.cost)}") }, onClick = {
+                                selectedLineProdId = p.id
+                                linePrice = p.cost.toString()
+                                expandedProd = false
+                            })
+                        }
+                    }
+                }
 
-                Row(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = lineQty,
+                        onValueChange = { lineQty = it },
+                        label = { Text("الكمية المطلوبة") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = linePrice,
+                        onValueChange = { linePrice = it },
+                        label = { Text("المتوقع (سعر الوحدة)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val pId = selectedLineProdId
+                        val q = lineQty.toDoubleOrNull() ?: 1.0
+                        val pr = linePrice.toDoubleOrNull() ?: 0.0
+                        if (pId != null && q > 0) {
+                            lines.add(Triple(pId, q, pr))
+                            selectedLineProdId = null
+                            lineQty = "1"
+                            linePrice = ""
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    enabled = selectedLineProdId != null
                 ) {
-                    Column(modifier = Modifier.weight(1.5f)) {
-                        Text("السلعة", fontSize = 10.sp)
-                        // Simple selector of items
-                        products.forEach { pr ->
-                            if (activeProductId == pr.id) {
-                                Text(pr.name, modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer).padding(4.dp), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Icon(Icons.Default.Add, null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("إضافة صنف لأمر الشراء")
+                }
+
+                if (lines.isNotEmpty()) {
+                    lines.forEachIndexed { idx, pair ->
+                        val prod = products.find { it.id == pair.first }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("${prod?.name} (${pair.second} x ${pair.third} ر.س)", fontSize = 11.sp)
+                            Row {
+                                Text(FormatUtils.formatCurrency(pair.second * pair.third), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(8.dp))
+                                Text("❌", color = Color.Red, fontSize = 11.sp, modifier = Modifier.clickable { lines.removeAt(idx) })
                             }
                         }
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("الكمية", fontSize = 10.sp)
-                        OutlinedTextField(
-                            value = inputQty,
-                            onValueChange = { inputQty = it },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                }
+
+                val subtotal = lines.sumOf { it.second * it.third }
+                val vat = subtotal * 0.15
+                val total = subtotal + vat
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                        Text("الإجمالي التقديري قبل الضريبة: ${FormatUtils.formatCurrency(subtotal)}", fontSize = 12.sp)
+                        Text("ضريبة القيمة المضافة التقديرية (15%): ${FormatUtils.formatCurrency(vat)}", fontSize = 12.sp)
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Text("الإجمالي التقديري للطلب: ${FormatUtils.formatCurrency(total)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("السعر", fontSize = 10.sp)
-                        OutlinedTextField(
-                            value = inputPrice,
-                            onValueChange = { inputPrice = it },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onDismiss) { Text("إلغاء") }
                     Button(
                         onClick = {
-                            val q = inputQty.toDoubleOrNull() ?: 0.0
-                            val p = inputPrice.toDoubleOrNull() ?: 0.0
-                            if (q > 0.0 && p > 0.0) {
-                                lineItems.add(Triple(activeProductId, q, p))
+                            if (selectedSupplierId != null && lines.isNotEmpty()) {
+                                val mapped = lines.map { Pair(it.first, Pair(it.second, it.third)) }
+                                onSave(selectedSupplierId!!, mapped)
                             }
                         },
-                        modifier = Modifier.padding(top = 12.dp)
+                        enabled = selectedSupplierId != null && lines.isNotEmpty()
                     ) {
-                        Text("+")
-                    }
-                }
-
-                // Show selected items
-                LazyColumn(modifier = Modifier.height(100.dp)) {
-                    items(lineItems) { line ->
-                        val prodName = products.find { it.id == line.first }?.name ?: "سلعة"
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("$prodName - الكمية: ${line.second} بسعر: ${line.third}", fontSize = 11.sp)
-                            TextButton(onClick = { lineItems.remove(line) }) {
-                                Text("إزالة", color = Color.Red, fontSize = 10.sp)
-                            }
-                        }
+                        Text("حفظ أمر الشراء المسودة")
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (selectedSupplierId != 0L && lineItems.isNotEmpty()) {
-                        val mapped = lineItems.map { Pair(it.first, Pair(it.second, it.third)) }
-                        onSave(selectedSupplierId, mapped)
-                    }
-                }
-            ) {
-                Text("حفظ أمر الشراء المسودة")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
-    )
+    }
 }
 
 // ==========================================
@@ -1049,143 +1075,171 @@ fun CreateInvoiceDraftDialog(
     onDismiss: () -> Unit,
     onSave: (supplierId: Long, isCredit: Boolean, paymentId: Long?, date: Long, due: Long, items: List<Pair<Long, Pair<Double, Double>>>) -> Unit
 ) {
-    var selectedSupplierId by remember { mutableStateOf(suppliers.firstOrNull()?.id ?: 0L) }
-    var isCredit by remember { mutableStateOf(true) }
+    var selectedSupplierId by remember { mutableStateOf<Long?>(null) }
+    var isCredit by remember { mutableStateOf(false) } // Cash vs Credit
+    val cashBankAccounts = accounts.filter { it.type == "ASSETS" && (it.code.startsWith("1101") || it.code.startsWith("1102")) }
+    var selectedAccountId by remember { mutableStateOf<Long?>(null) }
+    var termsDays by remember { mutableStateOf("7") }
+    val lines = remember { mutableStateListOf<Triple<Long, Double, Double>>() } // productId, qty, price
 
-    val cashOrBankAccounts = accounts.filter { it.type == "ASSETS" && (it.code.startsWith("1101") || it.code.startsWith("1102")) }
-    var selectedCashAccountId by remember { mutableStateOf(cashOrBankAccounts.firstOrNull()?.id) }
+    // line inputs
+    var selectedLineProdId by remember { mutableStateOf<Long?>(null) }
+    var lineQty by remember { mutableStateOf("1") }
+    var linePrice by remember { mutableStateOf("") }
 
-    val lineItems = remember { mutableStateListOf<Triple<Long, Double, Double>>() } // productId, qty, price
+    var expandedSup by remember { mutableStateOf(false) }
+    var expandedProd by remember { mutableStateOf(false) }
+    var expandedAcc by remember { mutableStateOf(false) }
 
-    var activeProductId by remember { mutableStateOf(products.firstOrNull()?.id ?: 0L) }
-    var inputQty by remember { mutableStateOf("10") }
-    var inputPrice by remember { mutableStateOf("120") }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
+            Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Text("إصدار فاتورة مشتريات جديدة", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("فاتورة مشتريات مباشرة بضاعة", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("المورد المعتمد للفاتورة:", fontSize = 11.sp)
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    suppliers.forEach { sup ->
-                        FilterChip(
-                            selected = selectedSupplierId == sup.id,
-                            onClick = { selectedSupplierId = sup.id },
-                            label = { Text(sup.name) },
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
+                Box {
+                    val label = suppliers.find { it.id == selectedSupplierId }?.name ?: "اختر المورد"
+                    OutlinedButton(onClick = { expandedSup = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label)
+                    }
+                    DropdownMenu(expanded = expandedSup, onDismissRequest = { expandedSup = false }) {
+                        suppliers.forEach { s ->
+                            DropdownMenuItem(text = { Text(s.name) }, onClick = { selectedSupplierId = s.id; expandedSup = false })
+                        }
                     }
                 }
 
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        RadioButton(selected = isCredit, onClick = { isCredit = true })
-                        Text("شراء آجل على الحساب", fontSize = 11.sp)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        RadioButton(selected = !isCredit, onClick = { isCredit = false })
-                        Text("شراء نقدي فوري", fontSize = 11.sp)
-                    }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isCredit, onCheckedChange = { isCredit = it })
+                    Spacer(Modifier.width(8.dp))
+                    Text("شراء على الحساب (آجل - ائتمان)", fontSize = 13.sp)
                 }
 
                 if (!isCredit) {
-                    Text("حساب الدفع النقدي الفوري المعتمد:", fontSize = 11.sp)
-                    cashOrBankAccounts.forEach { acc ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = selectedCashAccountId == acc.id, onClick = { selectedCashAccountId = acc.id })
-                            Text("${acc.nameAr} (${acc.code})", fontSize = 11.sp)
+                    Box {
+                        val label = cashBankAccounts.find { it.id == selectedAccountId }?.let { "${it.code} - ${it.nameAr}" } ?: "اختر صندوق/بنك التحويل/الدفع"
+                        OutlinedButton(onClick = { expandedAcc = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(label)
+                        }
+                        DropdownMenu(expanded = expandedAcc, onDismissRequest = { expandedAcc = false }) {
+                            cashBankAccounts.forEach { a ->
+                                DropdownMenuItem(text = { Text("${a.code} - ${a.nameAr}") }, onClick = { selectedAccountId = a.id; expandedAcc = false })
+                            }
                         }
                     }
+                } else {
+                    OutlinedTextField(
+                        value = termsDays,
+                        onValueChange = { termsDays = it },
+                        label = { Text("فترة السداد للمورد الآجل (بالأيام)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 HorizontalDivider()
+                Text("الأصناف المشتراة بالجدول", fontWeight = FontWeight.Bold, fontSize = 12.sp)
 
-                Text("إضافة سطر بند بضاعة:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Box {
+                    val label = products.find { it.id == selectedLineProdId }?.let { "${it.name} [متوفر: ${it.stock}]" } ?: "اختر صنف المشتريات"
+                    OutlinedButton(onClick = { expandedProd = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label)
+                    }
+                    DropdownMenu(expanded = expandedProd, onDismissRequest = { expandedProd = false }) {
+                        products.forEach { p ->
+                            DropdownMenuItem(text = { Text("${p.name} [متوفر: ${p.stock}] - التكلفة المقدرة ${FormatUtils.formatCurrency(p.cost)}") }, onClick = {
+                                selectedLineProdId = p.id
+                                linePrice = p.cost.toString()
+                                expandedProd = false
+                            })
+                        }
+                    }
+                }
 
-                Row(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = lineQty,
+                        onValueChange = { lineQty = it },
+                        label = { Text("الكمية المستلمة") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = linePrice,
+                        onValueChange = { linePrice = it },
+                        label = { Text("سعر الوحدة") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val pId = selectedLineProdId
+                        val q = lineQty.toDoubleOrNull() ?: 1.0
+                        val pr = linePrice.toDoubleOrNull() ?: 0.0
+                        if (pId != null && q > 0) {
+                            lines.add(Triple(pId, q, pr))
+                            selectedLineProdId = null
+                            lineQty = "1"
+                            linePrice = ""
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    enabled = selectedLineProdId != null
                 ) {
-                    Column(modifier = Modifier.weight(1.5f)) {
-                        Text("السلعة", fontSize = 9.sp)
-                        products.forEach { pr ->
-                            if (activeProductId == pr.id) {
-                                Text(pr.name, modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer).padding(2.dp).clickable { 
-                                    // rotate selection easily
-                                }, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Add, null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("إضافة صنف للفاتورة")
+                }
+
+                if (lines.isNotEmpty()) {
+                    lines.forEachIndexed { idx, pair ->
+                        val prod = products.find { it.id == pair.first }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("${prod?.name} (${pair.second} x ${pair.third} ر.س)", fontSize = 11.sp)
+                            Row {
+                                Text(FormatUtils.formatCurrency(pair.second * pair.third), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.width(8.dp))
+                                Text("❌", color = Color.Red, fontSize = 11.sp, modifier = Modifier.clickable { lines.removeAt(idx) })
                             }
                         }
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("الكمية", fontSize = 9.sp)
-                        OutlinedTextField(
-                            value = inputQty,
-                            onValueChange = { inputQty = it },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                }
+
+                val subtotal = lines.sumOf { it.second * it.third }
+                val vat = subtotal * 0.15
+                val total = subtotal + vat
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                    Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                        Text("الإجمالي قبل الضريبة: ${FormatUtils.formatCurrency(subtotal)}", fontSize = 12.sp)
+                        Text("ضريبة القيمة المضافة (15%): ${FormatUtils.formatCurrency(vat)}", fontSize = 12.sp)
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Text("الإجمالي المستحق للمورد: ${FormatUtils.formatCurrency(total)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("السعر الكلفة", fontSize = 9.sp)
-                        OutlinedTextField(
-                            value = inputPrice,
-                            onValueChange = { inputPrice = it },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = onDismiss) { Text("إلغاء") }
                     Button(
                         onClick = {
-                            val q = inputQty.toDoubleOrNull() ?: 0.0
-                            val p = inputPrice.toDoubleOrNull() ?: 0.0
-                            if (q > 0.0 && p > 0.0) {
-                                lineItems.add(Triple(activeProductId, q, p))
+                            if (selectedSupplierId != null && lines.isNotEmpty()) {
+                                val d = termsDays.toLongOrNull() ?: 7L
+                                val dueDate = System.currentTimeMillis() + (d * 24 * 3600 * 1000)
+                                val mapped = lines.map { Pair(it.first, Pair(it.second, it.third)) }
+                                onSave(selectedSupplierId!!, isCredit, selectedAccountId, System.currentTimeMillis(), dueDate, mapped)
                             }
                         },
-                        modifier = Modifier.padding(top = 10.dp)
+                        enabled = selectedSupplierId != null && lines.isNotEmpty()
                     ) {
-                        Text("+")
-                    }
-                }
-
-                LazyColumn(modifier = Modifier.height(80.dp)) {
-                    items(lineItems) { line ->
-                        val prodName = products.find { it.id == line.first }?.name ?: "سلعة"
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("$prodName ×${line.second} بسعر: ${line.third}", fontSize = 11.sp)
-                            TextButton(onClick = { lineItems.remove(line) }) {
-                                Text("إزالة", color = Color.Red, fontSize = 10.sp)
-                            }
-                        }
+                        Text("حفظ مسودة الفاتورة")
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (selectedSupplierId != 0L && lineItems.isNotEmpty()) {
-                        val mapped = lineItems.map { Pair(it.first, Pair(it.second, it.third)) }
-                        onSave(selectedSupplierId, isCredit, selectedCashAccountId, System.currentTimeMillis(), System.currentTimeMillis() + (7 * 24 * 3600 * 1000), mapped)
-                    }
-                }
-            ) {
-                Text("حفظ الفاتورة المسودة")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
-    )
+    }
 }
 
 // ==========================================
@@ -1403,4 +1457,57 @@ fun CreateReturnDialog(
             TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
+}
+
+// ==========================================
+// --- SUB TAB 5: PURCHASE ANALYTICS ---
+// ==========================================
+@Composable
+fun PurchaseAnalyticsSubTab(
+    invoices: List<PurchaseInvoiceWithOwner>,
+    partners: List<PartnerEntity>
+) {
+    val postedInvoices = invoices.filter { it.invoice.status == "POSTED" }
+    
+    // Compute Top Suppliers
+    val spendBySupplier = postedInvoices.groupBy { it.invoice.supplierId }
+        .mapValues { entry -> entry.value.sumOf { it.invoice.grandTotal } }
+        .entries.sortedByDescending { it.value }
+        .take(5)
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("تحليل الإنفاق على المشتريات (Top Suppliers)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (spendBySupplier.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("لا توجد بيانات مشتريات معتمدة كافية للتحليل.", style = MaterialTheme.typography.bodyMedium)
+            }
+        } else {
+            val maxSpend = spendBySupplier.maxOfOrNull { it.value } ?: 0.0
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                items(spendBySupplier) { entry ->
+                    val supplier = partners.find { it.id == entry.key }?.name ?: "مورد غير معروف"
+                    val fraction = if (maxSpend > 0) (entry.value / maxSpend).toFloat() else 0f
+                    
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(supplier, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(FormatUtils.formatCurrency(entry.value), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

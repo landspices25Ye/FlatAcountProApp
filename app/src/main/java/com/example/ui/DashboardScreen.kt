@@ -651,12 +651,12 @@ fun AccountsTab(
 
         // Display sorted Chart Of Accounts tree inside unified list
         if (accounts.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (searchQuery.isBlank()) {
@@ -969,12 +969,12 @@ fun JournalTab(
         Spacer(modifier = Modifier.height(10.dp))
 
         if (entries.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text("لا قيود محاسبية مسجلة. اضغط 'إنشاء قيد' للبدء.", color = Color.Gray)
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(entries) { entryAndLines ->
@@ -2205,8 +2205,9 @@ fun InventoryTab(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        when (invViewMode) {
-            0 -> {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (invViewMode) {
+                0 -> {
                 Text("الأرصدة الحالية للمخازن الفردية والمجمعة", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -2366,6 +2367,7 @@ fun InventoryTab(
             }
         }
     }
+    }
 }
 
 // ----------------------------------------------------
@@ -2410,8 +2412,9 @@ fun HrPayrollTab(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        when (hrViewToggle) {
-            0 -> {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (hrViewToggle) {
+                0 -> {
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
@@ -2597,6 +2600,7 @@ fun HrPayrollTab(
                 }
             }
         }
+    }
     }
 }
 
